@@ -1,0 +1,7 @@
+# Mỗi dòng là 1 prompt. Dòng bắt đầu bằng # sẽ bị bỏ qua.
+# Có thể đánh số: "1. prompt text" → file sẽ tên 1.jfif
+
+# Ví dụ:
+1. A lone stickman standing at the edge of a void, cold blue lighting, cinematic composition, minimalist art
+2. Digital rain falling through a dark server room, neon blue reflections, cyberpunk aesthetic
+3. A massive hourglass filled with binary code, dramatic lighting, symbolic art

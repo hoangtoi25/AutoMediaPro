@@ -1,0 +1,17 @@
+{
+  "name": "automedia-pro",
+  "version": "1.0.0",
+  "description": "Standalone Puppeteer automation for Google Labs ImageFX",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "chrome": "node launch-chrome.js"
+  },
+  "dependencies": {
+    "puppeteer-core": "^24.0.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "chalk": "^5.3.0"
+  }
+}
