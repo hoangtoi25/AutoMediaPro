@@ -27,6 +27,8 @@ node index.js --prompts ./prompts/sample.txt --folder "MyProject"
 
 # Dùng file .md
 node index.js --prompts ./prompts/stickman.md --folder "Stickman"
+node index.js --prompts ./prompts/prompts.md --folder "The Thing That Might Be Alive"
+
 ```
 
 Ảnh sẽ được tải về `~/Downloads/<folder>/`.

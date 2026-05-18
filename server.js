@@ -1,0 +1,146 @@
+import express from 'express';
+import { spawn } from 'child_process';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import fs from 'fs';
+import multer from 'multer';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const app = express();
+const port = 3000;
+
+app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.json());
+
+const upload = multer({ dest: 'prompts/' });
+
+// Ensure prompts directory exists
+if (!fs.existsSync(path.join(__dirname, 'prompts'))) {
+    fs.mkdirSync(path.join(__dirname, 'prompts'));
+}
+
+// Global state to track running process
+let currentProcess = null;
+
+// Native File/Folder pickers for Windows
+app.get('/api/pick-folder', (req, res) => {
+    const child = spawn('powershell', ['-Sta', '-NoProfile', '-File', path.join(__dirname, 'pick-folder.ps1')]);
+    let folderPath = '';
+    child.stdout.on('data', data => folderPath += data.toString());
+    child.on('close', () => res.json({ path: folderPath.trim() }));
+});
+
+app.get('/api/pick-file', (req, res) => {
+    const child = spawn('powershell', ['-Sta', '-NoProfile', '-File', path.join(__dirname, 'pick-file.ps1')]);
+    let filePath = '';
+    child.stdout.on('data', data => filePath += data.toString());
+    child.on('close', () => res.json({ path: filePath.trim() }));
+});
+
+app.get('/api/check-chrome', (req, res) => {
+    const paths = [
+        'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+        'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+        path.join(process.env.LOCALAPPDATA || '', 'Google\\Chrome\\Application\\chrome.exe')
+    ];
+    const installed = paths.some(p => fs.existsSync(p));
+    res.json({ installed });
+});
+
+app.post('/api/login', (req, res) => {
+    if (currentProcess) {
+        return res.status(400).json({ error: 'A process is already running.' });
+    }
+
+    res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive'
+    });
+
+    currentProcess = spawn('node', ['index.js', '--login'], { cwd: __dirname });
+
+    const sendLog = (type, message) => {
+        res.write(`data: ${JSON.stringify({ type, message })}\n\n`);
+    };
+
+    currentProcess.stdout.on('data', (data) => {
+        sendLog('log', data.toString());
+    });
+
+    currentProcess.stderr.on('data', (data) => {
+        sendLog('error', data.toString());
+    });
+
+    currentProcess.on('close', (code) => {
+        sendLog('close', `Process exited with code ${code}`);
+        res.end();
+        currentProcess = null;
+    });
+});
+
+app.post('/api/generate', upload.single('promptFile'), (req, res) => {
+    if (currentProcess) {
+        return res.status(400).json({ error: 'A process is already running.' });
+    }
+
+    const { folderName, promptText, nativeFilePath } = req.body;
+    
+    // If it's a JSON body, multer doesn't run, so we handle text directly
+    let promptFilePath = '';
+    
+    if (nativeFilePath) {
+        promptFilePath = nativeFilePath;
+    } else if (req.file) {
+        promptFilePath = req.file.path;
+    } else if (promptText) {
+        promptFilePath = path.join(__dirname, 'prompts', `web_prompt_${Date.now()}.txt`);
+        fs.writeFileSync(promptFilePath, promptText);
+    } else {
+        return res.status(400).json({ error: 'No prompt file or text provided.' });
+    }
+
+    const folder = req.body.folderName || 'AutoMedia_Web';
+
+    res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive'
+    });
+
+    currentProcess = spawn('node', ['index.js', '-p', promptFilePath, '-f', folder], { cwd: __dirname });
+
+    const sendLog = (type, message) => {
+        res.write(`data: ${JSON.stringify({ type, message })}\n\n`);
+    };
+
+    currentProcess.stdout.on('data', (data) => {
+        sendLog('log', data.toString());
+    });
+
+    currentProcess.stderr.on('data', (data) => {
+        sendLog('error', data.toString());
+    });
+
+    currentProcess.on('close', (code) => {
+        sendLog('close', `Process exited with code ${code}`);
+        res.end();
+        currentProcess = null;
+    });
+});
+
+app.post('/api/stop', (req, res) => {
+    if (currentProcess) {
+        currentProcess.kill('SIGINT');
+        currentProcess = null;
+        res.json({ message: 'Process stopped.' });
+    } else {
+        res.json({ message: 'No process running.' });
+    }
+});
+
+app.listen(port, () => {
+    console.log(`AutoMediaPro UI Server running at http://localhost:${port}`);
+});

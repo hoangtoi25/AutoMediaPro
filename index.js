@@ -266,6 +266,7 @@ Bước đầu tiên (chỉ cần 1 lần):
   log.info(`Đang đọc prompts từ: ${opts.promptsFile}`);
   const prompts = await loadPrompts(opts.promptsFile);
   log.info(`Đã tải ${prompts.length} prompts`);
+  console.log(`[SYSTEM] PROMPTS_LIST:${JSON.stringify(prompts)}`);
 
   // Connect to Chrome
   const { browser, isNew } = await getBrowser({ forceNew: opts.forceNewChrome });

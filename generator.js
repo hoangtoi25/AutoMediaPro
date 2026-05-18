@@ -97,7 +97,9 @@ export async function runGeneration(page, config) {
         if (match) filePrefix = match[1];
 
         for (let j = 0; j < images.length; j++) {
-          if (downloadedSrcs.has(images[j].src)) continue;
+          if (downloadedSrcs.has(images[j].src)) {
+            log.warn(`Ảnh ${j + 1} của prompt #${index} trùng URL với ảnh trước đó, vẫn tiến hành lưu để giữ thứ tự.`);
+          }
           downloadedSrcs.add(images[j].src);
 
           const filename = images.length === 1

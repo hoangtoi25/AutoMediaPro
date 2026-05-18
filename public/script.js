@@ -1,0 +1,500 @@
+document.addEventListener('DOMContentLoaded', () => {
+    // --- Initial Checks ---
+    fetch('/api/check-chrome')
+        .then(res => res.json())
+        .then(data => {
+            if (!data.installed) {
+                alert('⚠️ CẢNH BÁO QUAN TRỌNG: Máy tính của bạn chưa cài đặt trình duyệt Google Chrome!\n\nAutoMedia Pro yêu cầu phải có Chrome để chạy tự động hóa. Vui lòng tải và cài đặt Chrome trước khi sử dụng tính năng Generate.');
+            }
+        })
+        .catch(console.error);
+
+    // --- Navigation Logic ---
+    const stepItems = document.querySelectorAll('.step-item');
+    const stepContents = document.querySelectorAll('.step-content');
+    const nextBtns = document.querySelectorAll('.btn-next');
+    const prevBtns = document.querySelectorAll('.btn-prev');
+
+    function goToStep(stepNumber) {
+        // Update Sidebar
+        stepItems.forEach(item => {
+            if (item.dataset.step == stepNumber) {
+                item.classList.add('active');
+            } else {
+                item.classList.remove('active');
+            }
+        });
+
+        // Update Content
+        stepContents.forEach(content => {
+            if (content.id === `step-${stepNumber}-content`) {
+                content.classList.add('active');
+            } else {
+                content.classList.remove('active');
+            }
+        });
+
+        // Update Output Folder in Step 3 Preview if they navigate manually
+        if (stepNumber == 3) {
+            const currentFolder = document.getElementById('folderName').value.trim();
+            const outputFolderElement = document.getElementById('output-folder-name');
+            if (outputFolderElement) {
+                outputFolderElement.innerText = currentFolder || '...';
+            }
+        }
+    }
+
+    nextBtns.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const target = parseInt(e.currentTarget.dataset.target);
+
+            // Validate Step 2 → Step 3
+            if (target === 3) {
+                const folderName = document.getElementById('folderName').value.trim();
+                if (!folderName) {
+                    alert('⚠️ Vui lòng nhập Output Folder Name!');
+                    return;
+                }
+
+                // Validate prompt input
+                const activeTab = document.querySelector('.tab-btn.active');
+                const inputType = activeTab ? activeTab.dataset.tab : 'upload';
+                if (inputType === 'upload') {
+                    if (!selectedFile) {
+                        alert('⚠️ Vui lòng chọn file prompts trước khi chuyển sang bước tiếp theo!');
+                        return;
+                    }
+                } else {
+                    const text = document.getElementById('promptText').value.trim();
+                    if (!text) {
+                        alert('⚠️ Vui lòng nhập nội dung prompts trước khi chuyển sang bước tiếp theo!');
+                        return;
+                    }
+                }
+
+                // Pre-populate prompt preview in Step 3
+                previewPromptsInQueue();
+            }
+
+            goToStep(target);
+        });
+    });
+
+    prevBtns.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const target = e.currentTarget.dataset.target;
+            goToStep(target);
+        });
+    });
+
+    // --- Tab Logic ---
+    const tabBtns = document.querySelectorAll('.tab-btn');
+    const tabContents = document.querySelectorAll('.tab-content');
+    let activeInputType = 'upload'; // 'upload' or 'paste'
+
+    tabBtns.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            tabBtns.forEach(b => b.classList.remove('active'));
+            e.currentTarget.classList.add('active');
+            
+            const targetTab = e.currentTarget.dataset.tab;
+            activeInputType = targetTab;
+            
+            tabContents.forEach(c => {
+                if (c.id === `tab-${targetTab}`) c.classList.add('active');
+                else c.classList.remove('active');
+            });
+        });
+    });
+
+    // --- File Drag & Drop Logic ---
+    const dropZone = document.getElementById('file-drop-zone');
+    const fileInput = document.getElementById('promptFile');
+    const fileNameDisplay = document.getElementById('selected-file-name');
+    let selectedFile = null;
+
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, preventDefaults, false);
+    });
+
+    function preventDefaults(e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+        dropZone.addEventListener(eventName, () => dropZone.classList.add('dragover'), false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, () => dropZone.classList.remove('dragover'), false);
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+        const dt = e.dataTransfer;
+        const files = dt.files;
+        handleFiles(files);
+    });
+
+    fileInput.addEventListener('change', function() {
+        handleFiles(this.files);
+    });
+
+    function handleFiles(files) {
+        if (files.length > 0) {
+            selectedFile = files[0];
+            const fileExt = selectedFile.name.substring(selectedFile.name.lastIndexOf('.')).toLowerCase();
+            if (fileExt !== '.txt' && fileExt !== '.md') {
+                alert('⚠️ Cảnh báo: Định dạng file không hợp lệ!\nVui lòng chỉ chọn file .txt hoặc .md.');
+                selectedFile = null;
+                fileNameDisplay.textContent = 'No file selected';
+                fileNameDisplay.style.color = '';
+                return;
+            }
+            nativeFilePath = null; // Clear native file if uploading web
+            fileNameDisplay.textContent = selectedFile.name;
+            fileNameDisplay.style.color = '#10b981'; // Success color
+        }
+    }
+
+    // --- Status Indicator Logic ---
+    const statusDot = document.getElementById('system-status-dot');
+    const statusText = document.getElementById('system-status-text');
+
+    function setSystemStatus(isRunning) {
+        if (isRunning) {
+            statusDot.classList.add('running');
+            statusText.textContent = 'Running';
+        } else {
+            statusDot.classList.remove('running');
+            statusText.textContent = 'Ready';
+        }
+    }
+
+    // --- Terminal Logic ---
+    const terminalOutput = document.getElementById('terminal-output');
+
+    function addLogLine(text, type = 'info') {
+        const line = document.createElement('div');
+        line.className = `log-line ${type}`;
+        
+        // Basic parsing for colors from chalk output or keywords
+        if (text.includes('Thành công') || text.includes('success')) type = 'success';
+        if (text.includes('Lỗi') || text.includes('error')) type = 'error';
+        if (text.includes('Cảnh báo')) type = 'warn';
+        if (text.includes('▶')) type = 'step';
+        
+        line.className = `log-line ${type}`;
+        line.textContent = text;
+        terminalOutput.appendChild(line);
+        terminalOutput.scrollTop = terminalOutput.scrollHeight;
+    }
+
+    // --- API Calls ---
+    
+    // Login
+    document.getElementById('btn-login').addEventListener('click', async () => {
+        terminalOutput.innerHTML = '';
+        addLogLine('Khởi động tiến trình login...', 'info');
+        setSystemStatus(true);
+        goToStep(3); // Jump to terminal to see login process
+        
+        try {
+            const response = await fetch('/api/login', { method: 'POST' });
+            if (!response.ok) {
+                const err = await response.json();
+                addLogLine(`Error: ${err.error}`, 'error');
+                setSystemStatus(false);
+                return;
+            }
+            
+            setupEventSource(response);
+            
+        } catch (error) {
+            addLogLine(`Connection error: ${error.message}`, 'error');
+            setSystemStatus(false);
+        }
+    });
+
+    // Start Generation
+    const btnStart = document.getElementById('btn-start');
+    const btnStop = document.getElementById('btn-stop');
+
+    btnStart.addEventListener('click', async () => {
+        let folderName = document.getElementById('folderName').value.trim();
+        
+        if (!folderName) {
+            alert('⚠️ Vui lòng nhập Output Folder Name!');
+            goToStep(2);
+            return;
+        }
+
+        // Show warning about minimizing Chrome
+        alert('⚠️ LƯU Ý QUAN TRỌNG:\n\nVui lòng KHÔNG thu nhỏ (minimize) cửa sổ Chrome trong suốt quá trình tool đang chạy để tránh bị kẹt ảnh.\n\nBạn có thể làm việc trên cửa sổ khác đè lên Chrome, nhưng tuyệt đối không ấn nút thu nhỏ (-) nhé!');
+
+        const formData = new FormData();
+        formData.append('folderName', folderName);
+
+        if (activeInputType === 'upload') {
+            if (!selectedFile) {
+                alert('⚠️ Vui lòng chọn file prompts');
+                return;
+            }
+            formData.append('promptFile', selectedFile);
+        } else {
+            const text = document.getElementById('promptText').value;
+            if (!text.trim()) {
+                alert('⚠️ Vui lòng nhập nội dung prompts');
+                return;
+            }
+            
+            // Basic validation for text format
+            const lines = text.split('\\n').map(l => l.trim()).filter(l => l.length > 0 && !l.startsWith('#'));
+            if (lines.length === 0) {
+                alert('⚠️ Cảnh báo: Nội dung prompts không hợp lệ!\nHãy nhập mỗi prompt trên một dòng (bỏ qua dòng trống và dòng bắt đầu bằng #).');
+                return;
+            }
+            
+            formData.append('promptText', text);
+        }
+
+        // Display the output folder in Step 3
+        document.getElementById('output-folder-name').innerText = folderName;
+
+        terminalOutput.innerHTML = '';
+        addLogLine(`Khởi động tiến trình tạo ảnh (Folder: ${folderName})...`, 'info');
+        setSystemStatus(true);
+        
+        btnStart.disabled = true;
+        btnStop.disabled = false;
+
+        try {
+            const response = await fetch('/api/generate', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                addLogLine(`Error: ${err.error}`, 'error');
+                setSystemStatus(false);
+                btnStart.disabled = false;
+                btnStop.disabled = true;
+                return;
+            }
+
+            setupEventSource(response);
+
+        } catch (error) {
+            addLogLine(`Connection error: ${error.message}`, 'error');
+            setSystemStatus(false);
+            btnStart.disabled = false;
+            btnStop.disabled = true;
+        }
+    });
+
+    // Stop
+    btnStop.addEventListener('click', async () => {
+        try {
+            await fetch('/api/stop', { method: 'POST' });
+            addLogLine('Đã gửi lệnh dừng...', 'warn');
+        } catch (e) {
+            addLogLine(`Lỗi khi dừng: ${e.message}`, 'error');
+        }
+    });
+
+    async function setupEventSource(response) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            
+            // SSE lines end with \n\n
+            let endOfEvent = buffer.indexOf('\n\n');
+            while (endOfEvent !== -1) {
+                const eventText = buffer.slice(0, endOfEvent).trim();
+                buffer = buffer.slice(endOfEvent + 2);
+                endOfEvent = buffer.indexOf('\n\n');
+
+                if (eventText.startsWith('data: ')) {
+                    try {
+                        const dataStr = eventText.slice(6);
+                        const data = JSON.parse(dataStr);
+                        
+                        if (data.type === 'log' || data.type === 'error') {
+                            const lines = data.message.split('\n').filter(l => l.trim() !== '');
+                            lines.forEach(line => {
+                                // remove ascii color codes
+                                const cleanLine = line.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
+                                
+                                if (cleanLine.startsWith('[SYSTEM] PROMPTS_LIST:')) {
+                                    try {
+                                        const promptList = JSON.parse(cleanLine.substring(22));
+                                        buildPromptQueueUI(promptList);
+                                    } catch (err) { console.error('Parse prompt list error:', err); }
+                                    return;
+                                }
+
+                                updatePromptStatusFromLog(cleanLine);
+                                
+                                addLogLine(cleanLine, data.type === 'error' ? 'error' : 'info');
+                            });
+                        } else if (data.type === 'close') {
+                            addLogLine(data.message, 'warn');
+                            setSystemStatus(false);
+                            btnStart.disabled = false;
+                            btnStop.disabled = true;
+                        }
+                    } catch (e) {
+                        console.error('Error parsing SSE', e);
+                    }
+                }
+            }
+        }
+        
+        setSystemStatus(false);
+        btnStart.disabled = false;
+        btnStop.disabled = true;
+    }
+
+    let currentPromptList = [];
+    let completedCount = 0;
+
+    function buildPromptQueueUI(prompts) {
+        currentPromptList = prompts;
+        completedCount = 0;
+        const listDiv = document.getElementById('prompt-queue-list');
+        const statusSpan = document.getElementById('queue-status');
+        
+        statusSpan.innerText = `0/${prompts.length}`;
+        listDiv.innerHTML = '';
+        
+        prompts.forEach((p, idx) => {
+            const item = document.createElement('div');
+            item.className = 'prompt-item pending';
+            item.id = `queue-item-${idx + 1}`;
+            
+            const num = document.createElement('div');
+            num.className = 'prompt-item-index';
+            num.innerText = `#${idx + 1}`;
+            
+            const text = document.createElement('div');
+            text.className = 'prompt-item-text';
+            text.innerText = p;
+            
+            const icon = document.createElement('i');
+            icon.className = 'ph ph-hourglass-high prompt-item-icon';
+            icon.id = `queue-icon-${idx + 1}`;
+            
+            item.appendChild(num);
+            item.appendChild(text);
+            item.appendChild(icon);
+            listDiv.appendChild(item);
+        });
+    }
+
+    function updatePromptStatusFromLog(logText) {
+        const startMatch = logText.match(/Đang xử lý prompt #(\d+)/);
+        if (startMatch) {
+            setQueueItemStatus(startMatch[1], 'running', 'ph-spinner gap');
+            return;
+        }
+        
+        const successMatch = logText.match(/✅ Prompt #(\d+):/);
+        if (successMatch) {
+            setQueueItemStatus(successMatch[1], 'success', 'ph-check-circle');
+            updateCompletedCount();
+            return;
+        }
+        
+        const errMatch = logText.match(/Prompt #(\d+): (.+)/);
+        if (errMatch && !logText.includes('trùng URL')) {
+            const idx = errMatch[1];
+            const msg = errMatch[2].toLowerCase();
+            if (msg.includes('bỏ qua') || logText.includes('thất bại') || msg.includes('timeout') || msg.includes('error')) {
+                setQueueItemStatus(idx, 'error', 'ph-warning-circle');
+                updateCompletedCount();
+            }
+        }
+    }
+
+    function setQueueItemStatus(idx, status, iconClass) {
+        const item = document.getElementById(`queue-item-${idx}`);
+        const icon = document.getElementById(`queue-icon-${idx}`);
+        if (item && icon) {
+            item.className = `prompt-item ${status}`;
+            icon.className = `prompt-item-icon ph ${iconClass}`;
+            item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    }
+
+    function updateCompletedCount() {
+        completedCount++;
+        const statusSpan = document.getElementById('queue-status');
+        if (statusSpan && currentPromptList.length > 0) {
+            statusSpan.innerText = `${completedCount}/${currentPromptList.length}`;
+        }
+    }
+
+    function previewPromptsInQueue() {
+        const activeTab = document.querySelector('.tab-btn.active');
+        const inputType = activeTab ? activeTab.dataset.tab : 'upload';
+
+        if (inputType === 'upload' && selectedFile) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const text = e.target.result;
+                const prompts = parsePromptsFromText(text, selectedFile.name);
+                buildPromptQueueUI(prompts);
+            };
+            reader.readAsText(selectedFile);
+        } else if (inputType === 'paste') {
+            const text = document.getElementById('promptText').value;
+            const prompts = parsePromptsFromText(text, 'input.txt');
+            buildPromptQueueUI(prompts);
+        }
+    }
+
+    function parsePromptsFromText(text, filename) {
+        const lines = text.replace(/\r\n/g, '\n').split('\n');
+        const prompts = [];
+
+        for (const rawLine of lines) {
+            let line = rawLine.trim();
+            if (!line) continue;
+
+            // Skip markdown headers (# Title)
+            if (/^#{1,6}\s/.test(line)) continue;
+
+            // Skip horizontal rules (--- or ***)
+            if (/^[-*_]{3,}$/.test(line)) continue;
+
+            // Skip code fences
+            if (line.startsWith('```')) continue;
+
+            // Skip HTML comments
+            if (line.startsWith('<!--')) continue;
+
+            // Skip comment lines (# comment in .txt)
+            if (line === '#' || (line.startsWith('#') && !line.startsWith('# '))) continue;
+
+            // Clean up list markers for display
+            let prompt = line;
+            prompt = prompt.replace(/^[-*+]\s+/, '');
+            prompt = prompt.replace(/^\d+[.:]\s*/, '');
+            prompt = prompt.replace(/\*\*(.*?)\*\*/g, '$1');
+            prompt = prompt.replace(/\*(.*?)\*/g, '$1');
+            prompt = prompt.trim();
+
+            if (prompt.length > 5) {
+                prompts.push(prompt);
+            }
+        }
+        return prompts;
+    }
+});

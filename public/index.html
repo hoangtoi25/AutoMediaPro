@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoMedia Pro</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <!-- Phosphor Icons for modern UI -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+</head>
+<body>
+    <div class="background-blob blob-1"></div>
+    <div class="background-blob blob-2"></div>
+    <div class="background-blob blob-3"></div>
+
+    <div class="container">
+        <header class="glass-panel header">
+            <div class="logo-area">
+                <i class="ph-fill ph-aperture logo-icon"></i>
+                <div class="title-group">
+                    <h1>AutoMedia Pro</h1>
+                    <p>Google Labs ImageFX Automation</p>
+                </div>
+            </div>
+            <div class="status-indicator">
+                <span class="status-dot" id="system-status-dot"></span>
+                <span id="system-status-text">Ready</span>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <!-- Sidebar for steps -->
+            <aside class="glass-panel steps-sidebar">
+                <ul class="steps-list">
+                    <li class="step-item" data-step="1">
+                        <div class="step-icon"><i class="ph ph-user-circle"></i></div>
+                        <div class="step-text">
+                            <h3>Step 1</h3>
+                            <p>Authentication</p>
+                        </div>
+                    </li>
+                    <li class="step-item active" data-step="2">
+                        <div class="step-icon"><i class="ph ph-file-text"></i></div>
+                        <div class="step-text">
+                            <h3>Step 2</h3>
+                            <p>Configure Prompts</p>
+                        </div>
+                    </li>
+                    <li class="step-item" data-step="3">
+                        <div class="step-icon"><i class="ph ph-rocket-launch"></i></div>
+                        <div class="step-text">
+                            <h3>Step 3</h3>
+                            <p>Generate & View</p>
+                        </div>
+                    </li>
+                </ul>
+            </aside>
+
+            <!-- Main view area -->
+            <section class="glass-panel view-area">
+                
+                <!-- STEP 1: Login -->
+                <div class="step-content" id="step-1-content">
+                    <div class="content-header">
+                        <h2><i class="ph ph-shield-check"></i> Authentication</h2>
+                        <p>Login to your Google Labs account to authorize ImageFX automation.</p>
+                    </div>
+                    
+                    <div class="card login-card">
+                        <div class="card-icon"><i class="ph-fill ph-google-logo"></i></div>
+                        <h3>Google Account Required</h3>
+                        <p>The automation requires an active session. If you are already logged in, you can <b>skip this step</b>. Otherwise, click below to open Chrome and log in.</p>
+                        
+                        <div class="action-group">
+                            <button id="btn-login" class="btn btn-primary">
+                                <i class="ph ph-sign-in"></i> Launch Login Window
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="navigation-buttons">
+                        <button class="btn btn-secondary btn-next" data-target="2">
+                            Next Step <i class="ph ph-arrow-right"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- STEP 2: Configure Prompts -->
+                <div class="step-content active" id="step-2-content">
+                    <div class="content-header">
+                        <h2><i class="ph ph-magic-wand"></i> Configure Prompts</h2>
+                        <p>Provide your image prompts and set up the project folder.</p>
+                    </div>
+
+                    <form id="config-form">
+                        <div class="form-group">
+                            <label for="folderName">Output Folder Name <span class="required">*</span></label>
+                            <input type="text" id="folderName" placeholder="e.g. Documentary_Assets" class="input-field" required>
+                            <small>Images will be downloaded to this folder.</small>
+                        </div>
+
+                        <div class="tabs">
+                            <button type="button" class="tab-btn active" data-tab="upload">Upload Prompt File</button>
+                            <button type="button" class="tab-btn" data-tab="paste">Input Prompts Manually</button>
+                        </div>
+
+                        <div class="tab-content active" id="tab-upload">
+                            <div class="file-upload-wrapper" id="file-drop-zone">
+                                <i class="ph ph-upload-simple upload-icon"></i>
+                                <p>Drag & drop your .txt or .md file here</p>
+                                <span>or</span>
+                                <div style="display: flex; gap: 1rem; justify-content: center; margin-top: 1rem;">
+                                    <label for="promptFile" class="btn btn-outline" style="margin:0;">Browse Files</label>
+                                </div>
+                                <input type="file" id="promptFile" accept=".txt,.md" hidden>
+                                <div id="selected-file-name" class="selected-file">No file selected</div>
+                                <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--glass-border);">
+                                    <a href="/sample-prompts.md" download class="btn btn-ghost" style="font-size: 0.85rem;">
+                                        <i class="ph ph-download-simple"></i> Download Sample Prompts (.md)
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="tab-content" id="tab-paste">
+                            <textarea id="promptText" class="input-field textarea" placeholder="Paste your prompts here...&#10;1. First prompt...&#10;2. Second prompt..."></textarea>
+                        </div>
+                    </form>
+
+                    <div class="navigation-buttons">
+                        <button class="btn btn-ghost btn-prev" data-target="1">
+                            <i class="ph ph-arrow-left"></i> Back
+                        </button>
+                        <button class="btn btn-secondary btn-next" data-target="3">
+                            Next Step <i class="ph ph-arrow-right"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- STEP 3: Generation & Logs -->
+                <div class="step-content" id="step-3-content">
+                    <div class="content-header">
+                        <h2><i class="ph ph-terminal-window"></i> Generation Terminal</h2>
+                        <p>Monitor the live progress of your image generation pipeline.</p>
+                        <div id="output-folder-display" style="margin-top: 1rem; display: inline-flex; align-items: center; gap: 0.5rem; background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.3); padding: 0.5rem 1rem; border-radius: 0.5rem; color: #a9b1d6; font-size: 0.9rem;">
+                            <i class="ph ph-folder-open" style="color: #6366f1;"></i>
+                            <span>Output Folder: <strong id="output-folder-name" style="color: white;">...</strong></span>
+                        </div>
+                    </div>
+
+                    <div class="action-bar">
+                        <button id="btn-start" class="btn btn-primary pulse-effect">
+                            <i class="ph ph-play-circle"></i> Start Generation
+                        </button>
+                        <button id="btn-stop" class="btn btn-danger" disabled>
+                            <i class="ph ph-stop-circle"></i> Stop Process
+                        </button>
+                    </div>
+
+                    <div class="execution-layout">
+                        <div class="prompt-queue">
+                            <div class="queue-header">
+                                <h3><i class="ph ph-list-numbers"></i> Prompt Queue</h3>
+                                <span id="queue-status" style="font-size: 0.8rem; background: rgba(255,255,255,0.1); padding: 0.2rem 0.6rem; border-radius: 1rem;">0/0</span>
+                            </div>
+                            <div class="queue-body" id="prompt-queue-list">
+                                <div class="queue-empty">No prompts loaded yet.</div>
+                            </div>
+                        </div>
+
+                        <div class="terminal-container">
+                            <div class="terminal-header">
+                                <div class="mac-buttons">
+                                    <span class="mac-btn close"></span>
+                                    <span class="mac-btn minimize"></span>
+                                    <span class="mac-btn maximize"></span>
+                                </div>
+                                <span class="terminal-title">bash -- automedia</span>
+                            </div>
+                            <div class="terminal-body" id="terminal-output">
+                                <div class="log-line info">Waiting to start...</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="navigation-buttons">
+                        <button class="btn btn-ghost btn-prev" data-target="2">
+                            <i class="ph ph-arrow-left"></i> Back
+                        </button>
+                    </div>
+                </div>
+
+            </section>
+        </main>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
