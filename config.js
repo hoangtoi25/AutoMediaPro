@@ -6,17 +6,21 @@
  */
 
 import { homedir } from 'os';
-import { join } from 'path';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+// ── Resolve project root (directory of this file) ─────────────
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // ── Chrome Connection ─────────────────────────────────────────
 export const CHROME = {
-  // Default Chrome executable path (Windows)
-  EXECUTABLE: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+  // Portable Chrome bundled with the project
+  EXECUTABLE: join(__dirname, 'GoogleChromePortable64', 'App', 'Chrome-bin', 'chrome.exe'),
   // Remote debugging port
   DEBUG_PORT: 9222,
-  // User data directory — uses a DEDICATED profile to avoid conflicts
-  // with your main Chrome instance
-  USER_DATA_DIR: join(homedir(), '.automedia-chrome-profile'),
+  // User data directory — uses the portable Chrome's own profile
+  USER_DATA_DIR: join(__dirname, 'GoogleChromePortable64', 'Data', 'profile'),
   // WebSocket endpoint (auto-discovered if not set)
   WS_ENDPOINT: null,
 };

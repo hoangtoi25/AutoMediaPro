@@ -40,12 +40,9 @@ app.get('/api/pick-file', (req, res) => {
 });
 
 app.get('/api/check-chrome', (req, res) => {
-    const paths = [
-        'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-        'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-        path.join(process.env.LOCALAPPDATA || '', 'Google\\Chrome\\Application\\chrome.exe')
-    ];
-    const installed = paths.some(p => fs.existsSync(p));
+    // Check for portable Chrome bundled with the project
+    const portableChrome = path.join(__dirname, 'GoogleChromePortable64', 'App', 'Chrome-bin', 'chrome.exe');
+    const installed = fs.existsSync(portableChrome);
     res.json({ installed });
 });
 

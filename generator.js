@@ -103,8 +103,8 @@ export async function runGeneration(page, config) {
           downloadedSrcs.add(images[j].src);
 
           const filename = images.length === 1
-            ? `${filePrefix}.jfif`
-            : `${filePrefix}_${j + 1}.jfif`;
+            ? `${filePrefix}.jpg`
+            : `${filePrefix}_${j + 1}.jpg`;
 
           await downloadImage(page, images[j].src, filename, downloadFolder);
           await delay(TIMING.DOWNLOAD_SETTLE);

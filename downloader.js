@@ -16,7 +16,7 @@ import { log } from './logger.js';
  *
  * @param {import('puppeteer-core').Page} page
  * @param {string} url - Image URL
- * @param {string} filename - Filename (e.g., "1.jfif")
+ * @param {string} filename - Filename (e.g., "1.jpg")
  * @param {string} folder - Subfolder name
  * @returns {Promise<{ok: boolean, path?: string, error?: string}>}
  */
