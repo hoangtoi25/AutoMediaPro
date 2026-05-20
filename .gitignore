@@ -6,3 +6,5 @@ debug-landing-*.png
 build
 dist
 GoogleChromePortable64/
+browser-profiles
+prompts

@@ -9,7 +9,7 @@
     "chrome": "node launch-chrome.js",
     "ui": "node server.js",
     "electron-start": "electron electron-main.js",
-    "build:win": "electron-packager . \"AutoMedia Pro\" --platform=win32 --arch=x64 --out=dist --overwrite --icon=public/icon.png --ignore=\"^/dist|^/prompts\""
+    "build:win": "electron-packager . \"AutoMedia Pro\" --platform=win32 --arch=x64 --out=dist --overwrite --icon=public/icon.png --ignore=\"^/dist|^/prompts|^/browser-profiles\""
   },
   "build": {
     "appId": "com.automediapro.app",
@@ -36,12 +36,12 @@
     "multer": "^2.1.1",
     "puppeteer-core": "^24.0.0",
     "puppeteer-extra": "^3.3.6",
-    "puppeteer-extra-plugin-stealth": "^2.11.2"
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "wait-on": "^9.0.10"
   },
   "devDependencies": {
     "@electron/packager": "^18.4.4",
     "electron": "^41.6.1",
-    "electron-builder": "^26.8.1",
-    "wait-on": "^9.0.10"
+    "electron-builder": "^26.8.1"
   }
 }

@@ -51,9 +51,10 @@ function createWindow() {
 
 app.whenReady().then(() => {
     // Start the Express server
-    serverProcess = spawn('node', ['server.js'], {
+    serverProcess = spawn(process.execPath, ['server.js'], {
         cwd: __dirname,
-        stdio: 'inherit' // Optional: see server logs in terminal
+        stdio: 'inherit',
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }
     });
 
     createWindow();
