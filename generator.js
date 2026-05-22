@@ -48,6 +48,42 @@ export async function runGeneration(page, config) {
 
   log.info(`Bắt đầu pipeline: ${prompts.length} prompts → ${downloadFolder}/`);
 
+  // Phân tích định dạng đánh số để chọn chiến lược đặt tên tệp ảnh phù hợp
+  let usePromptNumbers = false;
+  const promptNumbers = [];
+  let allHaveNumbers = true;
+
+  for (const p of prompts) {
+    const match = p.trim().match(/^(\d+)[.\-:]?\s+/);
+    if (match) {
+      promptNumbers.push(parseInt(match[1]));
+    } else {
+      promptNumbers.push(null);
+      allHaveNumbers = false;
+    }
+  }
+
+  if (allHaveNumbers && promptNumbers.length > 0) {
+    let hasGaps = false;
+    let lastNum = promptNumbers[0];
+    for (let i = 1; i < promptNumbers.length; i++) {
+      if (promptNumbers[i] !== lastNum + 1) {
+        hasGaps = true;
+        break;
+      }
+      lastNum = promptNumbers[i];
+    }
+
+    // Nếu có khoảng trống nhảy số (ví dụ: [3, 4, 5, 7] - khuyết 6)
+    // hoặc bắt đầu từ một số khác 1 (ví dụ: [4, 5] nhưng là phân đoạn của script lớn hơn),
+    // chúng ta sẽ giữ nguyên số ở đầu prompt để khớp với file SRT phụ đề của Capcut.
+    if (hasGaps || promptNumbers[0] !== 1) {
+      usePromptNumbers = true;
+    }
+  }
+
+  log.info(`Chiến lược đặt tên ảnh: ${usePromptNumbers ? 'Giữ số thứ tự theo phân đoạn SRT (ví dụ: 3.jpg, 7.jpg)' : 'Tự động đánh số tuần tự từ 1 (ví dụ: 1.jpg, 2.jpg)'}`);
+
   // Ensure we're on the ImageFX page
   const currentUrl = page.url();
   if (!currentUrl.includes('labs.google/fx')) {
@@ -91,10 +127,14 @@ export async function runGeneration(page, config) {
         const { images } = result;
         log.success(`Prompt #${index}: ${images.length} ảnh tạo xong`);
 
-        // Extract file prefix from prompt (e.g., "42. prompt text" → "42")
+        // Quyết định tiền tố tên tệp dựa trên chiến lược đặt tên đã phân tích
         let filePrefix = index;
-        const match = prompt.match(/^(\d+)[.\-:]?\s+/);
-        if (match) filePrefix = match[1];
+        if (usePromptNumbers) {
+          const match = prompt.trim().match(/^(\d+)/);
+          if (match) {
+            filePrefix = parseInt(match[1]);
+          }
+        }
 
         for (let j = 0; j < images.length; j++) {
           if (downloadedSrcs.has(images[j].src)) {
