@@ -169,7 +169,7 @@ export async function getInputText(page) {
 // ── Image Snapshot & Detection ────────────────────────────────
 
 /**
- * Take a snapshot of all image srcs currently on the page.
+ * Take a snapshot of all image and video srcs currently on the page.
  * @param {import('puppeteer-core').Page} page
  * @returns {Promise<string[]>}
  */
@@ -181,42 +181,75 @@ export async function snapshotImages(page) {
         srcs.push(img.src);
       }
     });
+    document.querySelectorAll('video').forEach(vid => {
+      if (vid.src) {
+        srcs.push(vid.src);
+      } else {
+        const source = vid.querySelector('source');
+        if (source && source.src) {
+          srcs.push(source.src);
+        }
+      }
+    });
     return srcs;
   }, META_TIMING.MIN_IMAGE_SIZE);
 }
 
 /**
- * Find new images that appeared after the snapshot.
- * Filters out small images (avatars, icons, emoji) by size.
+ * Find new images and videos that appeared after the snapshot.
+ * Filters out small elements by size.
  * @param {import('puppeteer-core').Page} page
  * @param {Set<string>} snapshotSrcs
- * @returns {Promise<Array<{src: string, width: number, height: number}>>}
+ * @returns {Promise<Array<{src: string, width: number, height: number, type: 'image'|'video'}>>}
  */
 export async function findNewImages(page, snapshotSrcs) {
-  const allImages = await page.evaluate((minSize) => {
+  const allMedia = await page.evaluate((minSize) => {
     const result = [];
+    
+    // Images
     for (const img of document.querySelectorAll('img')) {
       if (!img.src) continue;
       if (img.src.startsWith('data:image/svg')) continue;
       if (img.dataset.autoMediaClaimed) continue;
 
-      // Filter by natural size — generated images are large
       if (img.naturalWidth < minSize || img.naturalHeight < minSize) continue;
 
-      // Additional heuristic: skip images that look like avatars (small rendered size)
       const rect = img.getBoundingClientRect();
       if (rect.width < 80 || rect.height < 80) continue;
 
       result.push({
         src: img.src,
-        width: img.naturalWidth,
-        height: img.naturalHeight,
+        width: img.naturalWidth || rect.width,
+        height: img.naturalHeight || rect.height,
+        type: 'image',
       });
     }
+
+    // Videos
+    for (const vid of document.querySelectorAll('video')) {
+      let src = vid.src;
+      if (!src) {
+        const source = vid.querySelector('source');
+        if (source) src = source.src;
+      }
+      if (!src) continue;
+      if (vid.dataset.autoMediaClaimed) continue;
+
+      const rect = vid.getBoundingClientRect();
+      if (rect.width < 80 || rect.height < 80) continue;
+
+      result.push({
+        src: src,
+        width: vid.videoWidth || rect.width || 720,
+        height: vid.videoHeight || rect.height || 1280,
+        type: 'video',
+      });
+    }
+
     return result;
   }, META_TIMING.MIN_IMAGE_SIZE);
 
-  return allImages.filter(img => !snapshotSrcs.has(img.src));
+  return allMedia.filter(media => !snapshotSrcs.has(media.src));
 }
 
 // ── Rendering Detection ───────────────────────────────────────
@@ -293,7 +326,7 @@ export async function detectError(page) {
 // ── Claim & Cleanup ───────────────────────────────────────────
 
 /**
- * Mark images as claimed to prevent re-detection.
+ * Mark images and videos as claimed to prevent re-detection.
  * @param {import('puppeteer-core').Page} page
  * @param {string[]} srcs
  * @param {number} promptIndex
@@ -305,14 +338,24 @@ export async function claimImages(page, srcs, promptIndex) {
         img.dataset.autoMediaClaimed = String(idx);
       }
     }
+    for (const vid of document.querySelectorAll('video')) {
+      let src = vid.src;
+      if (!src) {
+        const source = vid.querySelector('source');
+        if (source) src = source.src;
+      }
+      if (src && srcList.includes(src)) {
+        vid.dataset.autoMediaClaimed = String(idx);
+      }
+    }
   }, srcs, promptIndex);
 }
 
 /**
- * Find images claimed by a specific prompt index.
+ * Find images and videos claimed by a specific prompt index.
  * @param {import('puppeteer-core').Page} page
  * @param {number} promptIndex
- * @returns {Promise<Array<{src: string, width: number, height: number}>>}
+ * @returns {Promise<Array<{src: string, width: number, height: number, type: 'image'|'video'}>>}
  */
 export async function findClaimedImages(page, promptIndex) {
   return page.evaluate((idx, minSize) => {
@@ -325,6 +368,23 @@ export async function findClaimedImages(page, promptIndex) {
         src: img.src,
         width: img.naturalWidth,
         height: img.naturalHeight,
+        type: 'image',
+      });
+    }
+    for (const vid of document.querySelectorAll('video')) {
+      if (vid.dataset.autoMediaClaimed !== String(idx)) continue;
+      let src = vid.src;
+      if (!src) {
+        const source = vid.querySelector('source');
+        if (source) src = source.src;
+      }
+      if (!src) continue;
+      const rect = vid.getBoundingClientRect();
+      result.push({
+        src: src,
+        width: vid.videoWidth || rect.width || 720,
+        height: vid.videoHeight || rect.height || 1280,
+        type: 'video',
       });
     }
     return result;
@@ -332,7 +392,7 @@ export async function findClaimedImages(page, promptIndex) {
 }
 
 /**
- * Mark all unclaimed images as 'old'.
+ * Mark all unclaimed images and videos as 'old'.
  * @param {import('puppeteer-core').Page} page
  */
 export async function markAllUnclaimedImages(page) {
@@ -340,6 +400,16 @@ export async function markAllUnclaimedImages(page) {
     document.querySelectorAll('img:not([data-auto-media-claimed])').forEach(img => {
       if (img.src && !img.src.startsWith('data:image/svg')) {
         img.dataset.autoMediaClaimed = 'old';
+      }
+    });
+    document.querySelectorAll('video:not([data-auto-media-claimed])').forEach(vid => {
+      let src = vid.src;
+      if (!src) {
+        const source = vid.querySelector('source');
+        if (source) src = source.src;
+      }
+      if (src) {
+        vid.dataset.autoMediaClaimed = 'old';
       }
     });
   });

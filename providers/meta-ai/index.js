@@ -41,6 +41,66 @@ const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 const MAX_INPUT_RETRIES = 3;
 
+// ── Dialog Handling ───────────────────────────────────────────
+
+/**
+ * Dismiss Meta AI's custom "Discard prompt?" HTML dialog.
+ * This appears when switching modes (image/video) or navigating
+ * while there's unsent content in the input field.
+ *
+ * Clicks "Discard" to proceed, or "Stay" if Discard is not found.
+ */
+async function dismissDiscardDialog(page) {
+  const dismissed = await page.evaluate(() => {
+    // Look for buttons with "Discard", "Hủy", "Bỏ qua" text
+    const allBtns = document.querySelectorAll('button, [role="button"]');
+    for (const btn of allBtns) {
+      const text = btn.textContent.trim().toLowerCase();
+      if (text === 'discard' || text === 'hủy' || text === 'bỏ qua' || text === 'bỏ' || text === 'leave') {
+        btn.click();
+        return 'discard';
+      }
+    }
+    // Also try to close the dialog via close button (×)
+    for (const btn of allBtns) {
+      const text = btn.textContent.trim();
+      const ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase();
+      if (text === '×' || text === '✕' || ariaLabel.includes('close') || ariaLabel.includes('đóng')) {
+        // Only click if it's inside a dialog/modal
+        const dialog = btn.closest('[role="dialog"], [role="alertdialog"], [class*="modal"], [class*="dialog"], [class*="overlay"]');
+        if (dialog) {
+          btn.click();
+          return 'close';
+        }
+      }
+    }
+    return null;
+  });
+
+  if (dismissed) {
+    log.step(`[Meta AI] Đã đóng dialog "${dismissed}"`);
+    await delay(500);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Set up native dialog handler for beforeunload prompts.
+ * Call once per page to auto-accept all native dialogs.
+ */
+function setupDialogHandler(page) {
+  if (!page._metaDialogHandlerSet) {
+    page.on('dialog', async (dialog) => {
+      log.step(`[Meta AI] Auto-dismiss native dialog: ${dialog.type()}`);
+      try {
+        await dialog.accept();
+      } catch {}
+    });
+    page._metaDialogHandlerSet = true;
+  }
+}
+
 // ── Click "Create image" Action Button ────────────────────────
 
 /**
@@ -110,6 +170,76 @@ async function clickCreateImage(page) {
   return false;
 }
 
+/**
+ * Click the "Create video" action chip/button on Meta AI.
+ * This switches the chat into video/animation generation mode.
+ */
+async function clickCreateVideo(page) {
+  log.step('[Meta AI] Tìm nút "Create video"...');
+
+  const clicked = await page.evaluate(() => {
+    // Strategy 1: Find by exact text content
+    const targetTexts = [
+      'Create video', 'Tạo video', 'create video',
+      'Generate video', 'Animate', 'Tạo hoạt ảnh', 'Tạo phim'
+    ];
+
+    const allClickable = document.querySelectorAll(
+      'button, [role="button"], a, div[tabindex], span[tabindex]'
+    );
+
+    for (const el of allClickable) {
+      const text = el.textContent.trim();
+      for (const target of targetTexts) {
+        if (text.toLowerCase() === target.toLowerCase()) {
+          el.click();
+          return text;
+        }
+      }
+    }
+
+    // Strategy 2: Find by partial match (chip-style buttons)
+    for (const el of allClickable) {
+      const text = el.textContent.trim().toLowerCase();
+      if (text.includes('create video') || text.includes('tạo video') || text.includes('animate')) {
+        el.click();
+        return el.textContent.trim();
+      }
+    }
+
+    // Strategy 3: Find by aria-label
+    for (const el of allClickable) {
+      const label = (el.getAttribute('aria-label') || '').toLowerCase();
+      if (label.includes('create video') || label.includes('tạo video') || label.includes('animate')) {
+        el.click();
+        return label;
+      }
+    }
+
+    return null;
+  });
+
+  if (clicked) {
+    log.step(`[Meta AI] Đã click: "${clicked}"`);
+    await delay(1500); // Wait for mode switch UI to settle
+    return true;
+  }
+
+  log.warn('[Meta AI] Không tìm thấy nút "Create video" — có thể đã ở chế độ video hoặc UI đã thay đổi');
+  return false;
+}
+
+/**
+ * Detect if a prompt specifies dynamic motion/video parameters.
+ */
+function isVideoPrompt(prompt) {
+  const p = prompt.toLowerCase();
+  return p.includes('fps') || p.includes('24fps') || p.includes('loopable') || 
+         p.includes('camera zoom') || p.includes('camera pan') || p.includes('motion & physics') ||
+         p.includes('animate') || p.includes('flutter dynamically') || p.includes('physics simulation') ||
+         p.includes('video quality');
+}
+
 // ── Prepare Page ──────────────────────────────────────────────
 
 /**
@@ -156,7 +286,10 @@ async function preparePage(page) {
     await delay(2000);
   }
 
-  // Step 2: Wait for chat input to appear
+  // Step 2: Set up native dialog handler (beforeunload, etc.)
+  setupDialogHandler(page);
+
+  // Step 3: Wait for chat input to appear
   log.step('[Meta AI] Chờ ô nhập liệu...');
   for (let i = 0; i < 30; i++) {
     const inputEl = await findInputElement(page);
@@ -181,13 +314,29 @@ async function preparePage(page) {
 
 /**
  * Submit a prompt to Meta AI.
- * Clicks "Create image" first to enter image mode, then types the prompt.
- * No "Imagine" prefix needed — the mode button handles intent.
+ * Uses the explicit mediaType ('image' or 'video') from UI toggle
+ * to click the correct mode button before typing.
  */
-async function submitPrompt(page, prompt) {
-  // Click "Create image" before each prompt to ensure we're in image mode
-  // (after the first image is generated, Meta AI may reset to normal chat)
-  await clickCreateImage(page);
+async function submitPrompt(page, prompt, mediaType = 'image') {
+  // Dismiss any lingering "Discard prompt?" dialog from previous prompt
+  await dismissDiscardDialog(page);
+
+  // Use explicit mediaType from UI toggle, fallback to prompt keyword detection
+  let modeClicked = false;
+  if (mediaType === 'video' || isVideoPrompt(prompt)) {
+    log.step(`[Meta AI] Mode: VIDEO → Chuyển sang chế độ tạo video`);
+    modeClicked = await clickCreateVideo(page);
+    // Dismiss dialog that may appear after clicking mode switch
+    await dismissDiscardDialog(page);
+    if (!modeClicked) {
+      log.warn('[Meta AI] Nút "Create video" không tìm thấy, fallback về "Create image"');
+    }
+  }
+  if (!modeClicked) {
+    await clickCreateImage(page);
+    // Dismiss dialog that may appear after clicking mode switch
+    await dismissDiscardDialog(page);
+  }
 
   for (let attempt = 0; attempt < MAX_INPUT_RETRIES; attempt++) {
     const inputEl = await findInputElement(page);
@@ -296,12 +445,15 @@ async function waitForImages(page, promptIndex, imgSnapshot, signal) {
         continue;
       }
 
-      // Claim new images
+      // Claim new media (images + videos)
       claimedSrcs = newImgs.map(i => i.src);
       await claimImages(page, claimedSrcs, promptIndex);
       claimed = true;
       renderWaitCount = 0; // Reset render timer
-      log.step(`[Meta AI] Claimed ${claimedSrcs.length} ảnh mới`);
+      const videoCount = newImgs.filter(i => i.type === 'video').length;
+      const imageCount = newImgs.length - videoCount;
+      const mediaDesc = [imageCount > 0 ? `${imageCount} ảnh` : '', videoCount > 0 ? `${videoCount} video` : ''].filter(Boolean).join(' + ');
+      log.step(`[Meta AI] Claimed ${mediaDesc} mới`);
     }
 
     // Check if still rendering (more images coming?)
@@ -329,9 +481,10 @@ async function waitForImages(page, promptIndex, imgSnapshot, signal) {
       }
     }
 
-    // Re-validate claimed images are fully loaded
+    // Re-validate claimed media are fully loaded
     const claimedImgs = await findClaimedImages(page, promptIndex);
-    const validImgs = claimedImgs.filter(i => i.width >= META_TIMING.MIN_IMAGE_SIZE && i.height >= META_TIMING.MIN_IMAGE_SIZE);
+    // Videos always pass validation (dimensions may not be reported)
+    const validImgs = claimedImgs.filter(i => i.type === 'video' || (i.width >= META_TIMING.MIN_IMAGE_SIZE && i.height >= META_TIMING.MIN_IMAGE_SIZE));
 
     if (validImgs.length === 0) {
       if (waitCount % 15 === 0) {
@@ -375,6 +528,9 @@ async function checkLogin(page) {
 // ── Cleanup ───────────────────────────────────────────────────
 
 async function cleanup(page) {
+  // Dismiss any lingering dialogs before next prompt
+  await dismissDiscardDialog(page);
+
   await markAllUnclaimedImages(page);
 
   // Scroll to bottom to keep chat visible

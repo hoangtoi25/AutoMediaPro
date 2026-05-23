@@ -120,6 +120,17 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+    // --- Media Type Toggle Logic ---
+    let selectedMediaType = 'image'; // 'image' or 'video'
+    const mediaTypeBtns = document.querySelectorAll('.media-type-btn');
+    mediaTypeBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            mediaTypeBtns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            selectedMediaType = btn.dataset.type;
+        });
+    });
+
     // --- File Drag & Drop Logic ---
     const dropZone = document.getElementById('file-drop-zone');
     const fileInput = document.getElementById('promptFile');
@@ -315,9 +326,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Add provider to form data
         formData.append('provider', selectedProvider);
+        formData.append('mediaType', selectedMediaType);
 
         terminalOutput.innerHTML = '';
-        addLogLine(`Khởi động tiến trình tạo ảnh (Folder: ${folderName})...`, 'info');
+        addLogLine(`Khởi động tiến trình tạo ${selectedMediaType === 'video' ? 'video' : 'ảnh'} (Folder: ${folderName})...`, 'info');
         setSystemStatus(true);
         
         btnStart.disabled = true;

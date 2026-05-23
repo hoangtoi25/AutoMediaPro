@@ -1,19 +1,23 @@
 /**
- * downloader.js — Image download via Puppeteer.
+ * downloader.js — Media download via Puppeteer.
  *
- * Downloads generated images using multiple strategies:
+ * Downloads generated images & videos using multiple strategies:
  *
- * Strategy 1: Open image URL in a new browser tab (best for Meta AI)
+ * Strategy 0 (Blob): Extract blob: URL data directly from browser context
+ *   → Only way to download blob: URLs (Meta AI videos)
+ *
+ * Strategy 1 (New Tab): Open URL in a new browser tab
  *   → Uses browser's full cookie jar → works for fbcdn.net CDN images
  *
- * Strategy 2: page.evaluate(fetch) with credentials
- *   → Works for same-origin images (ImageFX)
+ * Strategy 2 (Page Fetch): page.evaluate(fetch) with credentials
+ *   → Works for same-origin images/videos
  *
- * Strategy 3: Direct Node.js fetch with headers
- *   → Fallback for public CDN images
+ * Strategy 3 (Direct Fetch): Node.js fetch with headers
+ *   → Fallback for public CDN images/videos
  *
- * Strategy 4: Element screenshot (absolute last resort)
- *   → Produces lower quality but always works
+ * Strategy 4 (Screenshot): Element screenshot (absolute last resort)
+ *   → Produces lower quality but always works for images
+ *   → For videos: captures a single frame as JPEG
  */
 
 import { writeFile, mkdir } from 'fs/promises';
@@ -22,11 +26,11 @@ import { DOWNLOAD } from './config.js';
 import { log } from './logger.js';
 
 /**
- * Download an image from a URL.
+ * Download media (image or video) from a URL.
  *
  * @param {import('puppeteer-core').Page} page
- * @param {string} url - Image URL
- * @param {string} filename - Filename (e.g., "1.jpg")
+ * @param {string} url - Media URL (can be blob:, https://, etc.)
+ * @param {string} filename - Filename (e.g., "1.jpg" or "1.mp4")
  * @param {string} folder - Subfolder name
  * @returns {Promise<{ok: boolean, path?: string, error?: string}>}
  */
@@ -36,39 +40,107 @@ export async function downloadImage(page, url, filename, folder) {
     await mkdir(folderPath, { recursive: true });
     const filePath = join(folderPath, filename);
 
-    // Strategy 1: Open URL in a new tab (inherits full browser cookie jar)
-    // Best for Meta AI (fbcdn.net) and cross-origin images
-    const buffer1 = await downloadViaNewTab(page, url);
-    if (buffer1) {
-      await writeFile(filePath, buffer1);
-      log.download(`${folder}/${filename}`);
-      return { ok: true, path: filePath };
+    const isBlob = url.startsWith('blob:');
+    const isVideo = filename.endsWith('.mp4') || filename.endsWith('.webm');
+    const urlPreview = isBlob ? `blob:...${url.slice(-30)}` : url.substring(0, 80);
+
+    log.step(`[Download] ${filename} ← ${urlPreview}${isVideo ? ' (video)' : ''}`);
+
+    // Strategy 0: Blob URL extraction (only for blob: URLs)
+    if (isBlob) {
+      log.step(`[Download] Strategy 0: Blob extraction...`);
+      const blobBuffer = await downloadViaBlobExtract(page, url);
+      if (blobBuffer) {
+        await writeFile(filePath, blobBuffer);
+        log.download(`${folder}/${filename} (blob)`);
+        return { ok: true, path: filePath };
+      }
+      log.warn(`[Download] Blob extraction thất bại, thử screenshot...`);
+
+      // For blob videos, screenshot is the only fallback
+      const screenshotted = await screenshotMediaElement(page, url, filePath);
+      if (screenshotted) {
+        log.download(`${folder}/${filename} (screenshot)`);
+        return { ok: true, path: filePath };
+      }
+
+      throw new Error('Blob URL extraction and screenshot both failed');
     }
 
-    // Strategy 2: Fetch via page.evaluate (same-origin / CORS-allowed)
-    const base64 = await downloadViaPageFetch(page, url);
-    if (base64) {
-      const buffer = Buffer.from(base64, 'base64');
-      await writeFile(filePath, buffer);
-      log.download(`${folder}/${filename}`);
-      return { ok: true, path: filePath };
-    }
+    // ── VIDEO DOWNLOAD ORDER ──────────────────────────────────
+    // For video files: page fetch FIRST (Strategy 2), then direct fetch (Strategy 3).
+    // SKIP new-tab (Strategy 1) for videos because page.goto(videoUrl)
+    // causes Chrome to render an internal video player → response.buffer()
+    // hangs indefinitely waiting for the streaming to complete.
+    //
+    // ── IMAGE DOWNLOAD ORDER ──────────────────────────────────
+    // For images: new tab first (Strategy 1), then page fetch, then direct.
 
-    // Strategy 3: Direct Node.js fetch (public CDN images)
-    log.step(`[Download] Thử direct fetch...`);
-    const buffer3 = await downloadViaDirect(url);
-    if (buffer3) {
-      await writeFile(filePath, buffer3);
-      log.download(`${folder}/${filename} (direct)`);
-      return { ok: true, path: filePath };
-    }
+    if (isVideo) {
+      // Video: page fetch → direct fetch → screenshot
+      log.step(`[Download] Strategy 2 (video-first): Page fetch...`);
+      const buffer2 = await downloadViaPageFetch(page, url, true);
+      if (buffer2) {
+        await writeFile(filePath, buffer2);
+        log.download(`${folder}/${filename} (page-fetch)`);
+        return { ok: true, path: filePath };
+      }
+      log.step(`[Download] Strategy 2 thất bại, thử direct fetch...`);
 
-    // Strategy 4: Element screenshot (last resort — lower quality)
-    log.step(`[Download] Thử screenshot element...`);
-    const screenshotted = await screenshotImageElement(page, url, filePath);
-    if (screenshotted) {
-      log.download(`${folder}/${filename} (screenshot)`);
-      return { ok: true, path: filePath };
+      const buffer3 = await downloadViaDirect(url);
+      if (buffer3) {
+        await writeFile(filePath, buffer3);
+        log.download(`${folder}/${filename} (direct)`);
+        return { ok: true, path: filePath };
+      }
+      log.step(`[Download] Strategy 3 thất bại, thử new tab (fallback)...`);
+
+      // Last resort for video: try new tab with short timeout
+      const buffer1 = await downloadViaNewTab(page, url, 10000);
+      if (buffer1) {
+        await writeFile(filePath, buffer1);
+        log.download(`${folder}/${filename} (new-tab)`);
+        return { ok: true, path: filePath };
+      }
+      log.step(`[Download] All video strategies thất bại, thử screenshot frame...`);
+
+      const screenshotted = await screenshotMediaElement(page, url, filePath);
+      if (screenshotted) {
+        log.download(`${folder}/${filename} (screenshot-frame)`);
+        return { ok: true, path: filePath };
+      }
+    } else {
+      // Image: new tab → page fetch → direct fetch → screenshot
+      log.step(`[Download] Strategy 1: New tab...`);
+      const buffer1 = await downloadViaNewTab(page, url);
+      if (buffer1) {
+        await writeFile(filePath, buffer1);
+        log.download(`${folder}/${filename}`);
+        return { ok: true, path: filePath };
+      }
+      log.step(`[Download] Strategy 1 thất bại, thử page fetch...`);
+
+      const buffer2 = await downloadViaPageFetch(page, url, false);
+      if (buffer2) {
+        await writeFile(filePath, buffer2);
+        log.download(`${folder}/${filename} (page-fetch)`);
+        return { ok: true, path: filePath };
+      }
+      log.step(`[Download] Strategy 2 thất bại, thử direct fetch...`);
+
+      const buffer3 = await downloadViaDirect(url);
+      if (buffer3) {
+        await writeFile(filePath, buffer3);
+        log.download(`${folder}/${filename} (direct)`);
+        return { ok: true, path: filePath };
+      }
+      log.step(`[Download] Strategy 3 thất bại, thử screenshot...`);
+
+      const screenshotted = await screenshotMediaElement(page, url, filePath);
+      if (screenshotted) {
+        log.download(`${folder}/${filename} (screenshot)`);
+        return { ok: true, path: filePath };
+      }
     }
 
     throw new Error('All download strategies failed');
@@ -78,12 +150,91 @@ export async function downloadImage(page, url, filename, folder) {
   }
 }
 
+// ── Strategy 0: Blob URL Extraction ─────────────────────────────
+
 /**
- * Strategy 1: Open image URL in a new browser tab.
- * This uses the browser's full cookie jar, bypassing CORS issues.
- * Works great for Meta AI (fbcdn.net) images.
+ * Extract blob: URL data directly from the browser context.
+ * This is the ONLY way to download blob: URLs since they are
+ * bound to the page's origin and can't be accessed externally.
+ *
+ * Uses XMLHttpRequest in the browser to read the blob as ArrayBuffer,
+ * then converts to base64 and transfers to Node.js.
  */
-async function downloadViaNewTab(page, url) {
+async function downloadViaBlobExtract(page, blobUrl) {
+  try {
+    const base64 = await page.evaluate(async (url) => {
+      try {
+        // Method 1: Fetch API
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
+        const blob = await response.blob();
+
+        return new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const result = reader.result;
+            if (result && result.includes(',')) {
+              resolve(result.split(',')[1]);
+            } else {
+              resolve(null);
+            }
+          };
+          reader.onerror = () => resolve(null);
+          reader.readAsDataURL(blob);
+        });
+      } catch (e1) {
+        // Method 2: XMLHttpRequest (fallback)
+        try {
+          return new Promise((resolve) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('GET', url, true);
+            xhr.responseType = 'blob';
+            xhr.timeout = 30000;
+            xhr.onload = () => {
+              if (xhr.status !== 200) { resolve(null); return; }
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                const result = reader.result;
+                if (result && result.includes(',')) {
+                  resolve(result.split(',')[1]);
+                } else {
+                  resolve(null);
+                }
+              };
+              reader.onerror = () => resolve(null);
+              reader.readAsDataURL(xhr.response);
+            };
+            xhr.onerror = () => resolve(null);
+            xhr.ontimeout = () => resolve(null);
+            xhr.send();
+          });
+        } catch {
+          return null;
+        }
+      }
+    }, blobUrl);
+
+    if (base64 && base64.length > 200) {
+      return Buffer.from(base64, 'base64');
+    }
+    return null;
+  } catch (e) {
+    log.warn(`[Download] Blob extract error: ${e.message}`);
+    return null;
+  }
+}
+
+// ── Strategy 1: New Tab ─────────────────────────────────────────
+
+/**
+ * Open media URL in a new browser tab.
+ * Uses the browser's full cookie jar, bypassing CORS issues.
+ * Works great for Meta AI (fbcdn.net) images & video CDN URLs.
+ */
+async function downloadViaNewTab(page, url, timeout = 20000) {
+  // Skip blob URLs — they can't be opened in a new tab
+  if (url.startsWith('blob:')) return null;
+
   let newPage = null;
   try {
     const browser = page.browser();
@@ -91,7 +242,7 @@ async function downloadViaNewTab(page, url) {
 
     const response = await newPage.goto(url, {
       waitUntil: 'load',
-      timeout: 15000,
+      timeout,
     });
 
     if (!response || !response.ok()) {
@@ -100,14 +251,14 @@ async function downloadViaNewTab(page, url) {
 
     const buffer = await response.buffer();
 
-    // Verify it's actually an image (at least a few KB)
+    // Verify it's a real file (at least a few KB)
     if (buffer.length < 500) {
       return null;
     }
 
     return buffer;
   } catch (e) {
-    // Silently fail — we'll try other strategies
+    // Fail silently — we'll try other strategies
     return null;
   } finally {
     if (newPage) {
@@ -116,51 +267,85 @@ async function downloadViaNewTab(page, url) {
   }
 }
 
+// ── Strategy 2: Page Fetch ──────────────────────────────────────
+
 /**
- * Strategy 2: Fetch image through page.evaluate (inherits page cookies).
- * Works for same-origin or CORS-allowed images.
+ * Fetch media through page.evaluate (inherits page cookies).
+ * For videos, transfers as chunked base64 to avoid memory issues.
  */
-async function downloadViaPageFetch(page, url) {
+async function downloadViaPageFetch(page, url, isVideo = false) {
+  // Skip blob URLs — handled by Strategy 0
+  if (url.startsWith('blob:')) return null;
+
   try {
-    const base64 = await page.evaluate(async (imgUrl) => {
+    const result = await page.evaluate(async (mediaUrl) => {
       try {
-        const response = await fetch(imgUrl, { credentials: 'include' });
-        if (!response.ok) return null;
+        const response = await fetch(mediaUrl, { credentials: 'include' });
+        if (!response.ok) return { error: `HTTP ${response.status} ${response.statusText}` };
 
         const blob = await response.blob();
-        // Verify it's an image
-        if (!blob.type.startsWith('image/')) return null;
+        const type = blob.type || 'unknown';
+        const size = blob.size;
 
-        return new Promise((resolve, reject) => {
+        // Accept any media type or octet-stream
+        const validTypes = ['image/', 'video/', 'application/octet-stream', 'binary/'];
+        const isValidType = validTypes.some(t => type.startsWith(t));
+        if (!isValidType) {
+          return { error: `Invalid content-type: ${type} (size: ${size})` };
+        }
+
+        // Skip files larger than 100MB (too large for base64 transfer)
+        if (size > 100 * 1024 * 1024) {
+          return { error: `File too large: ${(size / 1024 / 1024).toFixed(1)}MB` };
+        }
+
+        return new Promise((resolve) => {
           const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result.split(',')[1]);
-          reader.onerror = () => resolve(null);
+          reader.onloadend = () => {
+            const dataUrl = reader.result;
+            if (dataUrl && dataUrl.includes(',')) {
+              resolve({ ok: true, base64: dataUrl.split(',')[1], type, size });
+            } else {
+              resolve({ error: 'FileReader returned empty result' });
+            }
+          };
+          reader.onerror = () => resolve({ error: 'FileReader error' });
           reader.readAsDataURL(blob);
         });
       } catch (e) {
-        return null;
+        return { error: e.message || 'Unknown fetch error' };
       }
     }, url);
 
-    if (base64 && base64.length > 200) {
-      return base64;
+    if (result && result.ok && result.base64 && result.base64.length > 200) {
+      log.step(`[Download] Page fetch OK: ${result.type} (${(result.size / 1024).toFixed(0)}KB)`);
+      return Buffer.from(result.base64, 'base64');
+    }
+    if (result && result.error) {
+      log.warn(`[Download] Page fetch failed: ${result.error}`);
     }
     return null;
-  } catch {
+  } catch (e) {
+    log.warn(`[Download] Page fetch exception: ${e.message}`);
     return null;
   }
 }
 
+// ── Strategy 3: Direct Fetch ────────────────────────────────────
+
 /**
- * Strategy 3: Direct Node.js fetch (no browser cookies).
- * Works for public CDN images.
+ * Direct Node.js fetch (no browser cookies).
+ * Works for public CDN images/videos.
  */
 async function downloadViaDirect(url) {
+  // Skip blob URLs
+  if (url.startsWith('blob:')) return null;
+
   try {
     const response = await fetch(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+        'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,video/*,*/*;q=0.8',
         'Referer': 'https://www.meta.ai/',
         'Sec-Fetch-Dest': 'image',
         'Sec-Fetch-Mode': 'no-cors',
@@ -179,21 +364,37 @@ async function downloadViaDirect(url) {
   }
 }
 
+// ── Strategy 4: Screenshot Element ──────────────────────────────
+
 /**
- * Strategy 4: Screenshot a specific <img> element from the page.
- * Last resort — produces lower quality than the original image.
+ * Screenshot a specific <img> or <video> element from the page.
+ * Last resort — produces lower quality than the original media.
+ * For videos, captures the current visible frame.
  */
-async function screenshotImageElement(page, imgSrc, filePath) {
+async function screenshotMediaElement(page, mediaSrc, filePath) {
   try {
     const imgHandle = await page.evaluateHandle((src) => {
+      // Try image first
       for (const img of document.querySelectorAll('img')) {
         if (img.src === src && img.naturalWidth > 50) {
           img.scrollIntoView({ behavior: 'instant', block: 'center' });
           return img;
         }
       }
+      // Try video next
+      for (const vid of document.querySelectorAll('video')) {
+        let vidSrc = vid.src;
+        if (!vidSrc) {
+          const source = vid.querySelector('source');
+          if (source) vidSrc = source.src;
+        }
+        if (vidSrc === src) {
+          vid.scrollIntoView({ behavior: 'instant', block: 'center' });
+          return vid;
+        }
+      }
       return null;
-    }, imgSrc);
+    }, mediaSrc);
 
     const element = imgHandle.asElement();
     if (!element) {
@@ -201,7 +402,7 @@ async function screenshotImageElement(page, imgSrc, filePath) {
       return false;
     }
 
-    await new Promise(r => setTimeout(r, 300));
+    await new Promise(r => setTimeout(r, 500));
     await element.screenshot({ path: filePath, type: 'jpeg', quality: 95 });
     element.dispose();
     return true;

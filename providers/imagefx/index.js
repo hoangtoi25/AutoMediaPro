@@ -135,7 +135,7 @@ async function preparePage(page) {
 
 // ── Submit Prompt ─────────────────────────────────────────────
 
-async function submitPrompt(page, prompt) {
+async function submitPrompt(page, prompt, mediaType = 'image') {
   for (let attempt = 0; attempt < MAX_INPUT_RETRIES; attempt++) {
     const inputEl = await findInputElement(page);
     if (!inputEl) throw new Error('Không tìm thấy ô nhập liệu');

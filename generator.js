@@ -33,13 +33,13 @@ const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
  * @returns {Promise<{results: Array<{prompt: string, status: string, error?: string}>}>}
  */
 export async function runGeneration(page, config) {
-  const { prompts, downloadFolder, providerName = 'imagefx', maxRetries = 2, signal } = config;
+  const { prompts, downloadFolder, providerName = 'imagefx', maxRetries = 2, mediaType = 'image', signal } = config;
   const provider = getProvider(providerName);
   const results = [];
   const downloadedSrcs = new Set();
   let retryQueue = [];
 
-  log.info(`[${provider.displayName}] Bắt đầu pipeline: ${prompts.length} prompts → ${downloadFolder}/`);
+  log.info(`[${provider.displayName}] Bắt đầu pipeline: ${prompts.length} prompts → ${downloadFolder}/ (mode: ${mediaType})`);
 
   // Phân tích định dạng đánh số để chọn chiến lược đặt tên tệp ảnh phù hợp
   let usePromptNumbers = false;
@@ -110,7 +110,7 @@ export async function runGeneration(page, config) {
     try {
       // Phase 1: Snapshot & Submit prompt
       const imgSnapshot = new Set(await provider.snapshotImages(page));
-      await provider.submitPrompt(page, prompt);
+      await provider.submitPrompt(page, prompt, mediaType);
 
       // Phase 2: Wait for result
       const result = await provider.waitForImages(page, index, imgSnapshot, signal);
@@ -118,7 +118,10 @@ export async function runGeneration(page, config) {
       if (result.status === 'success') {
         // Phase 3: Download
         const { images } = result;
-        log.success(`Prompt #${index}: ${images.length} ảnh tạo xong`);
+        const vidCount = images.filter(i => i.type === 'video').length;
+        const imgCount = images.length - vidCount;
+        const mediaLabel = [imgCount > 0 ? `${imgCount} ảnh` : '', vidCount > 0 ? `${vidCount} video` : ''].filter(Boolean).join(' + ');
+        log.success(`Prompt #${index}: ${mediaLabel} tạo xong`);
 
         // Quyết định tiền tố tên tệp dựa trên chiến lược đặt tên đã phân tích
         let filePrefix = index;
@@ -131,13 +134,15 @@ export async function runGeneration(page, config) {
 
         for (let j = 0; j < images.length; j++) {
           if (downloadedSrcs.has(images[j].src)) {
-            log.warn(`Ảnh ${j + 1} của prompt #${index} trùng URL với ảnh trước đó, vẫn tiến hành lưu để giữ thứ tự.`);
+            log.warn(`Media ${j + 1} của prompt #${index} trùng URL với media trước đó, vẫn tiến hành lưu để giữ thứ tự.`);
           }
           downloadedSrcs.add(images[j].src);
 
+          const isVideo = images[j].type === 'video';
+          const ext = isVideo ? '.mp4' : '.jpg';
           const filename = images.length === 1
-            ? `${filePrefix}.jpg`
-            : `${filePrefix}_${j + 1}.jpg`;
+            ? `${filePrefix}${ext}`
+            : `${filePrefix}_${j + 1}${ext}`;
 
           await downloadImage(page, images[j].src, filename, downloadFolder);
           await delay(TIMING.DOWNLOAD_SETTLE);

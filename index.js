@@ -34,6 +34,7 @@ function parseArgs() {
     forceNewChrome: false,
     loginMode: false,
     provider: 'imagefx',
+    mediaType: 'image',
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -55,6 +56,9 @@ function parseArgs() {
         break;
       case '--new-chrome':
         opts.forceNewChrome = true;
+        break;
+      case '--media-type':
+        opts.mediaType = args[++i] || 'image';
         break;
       case '--login':
         opts.loginMode = true;
@@ -361,6 +365,7 @@ Bước đầu tiên (chỉ cần 1 lần cho mỗi provider):
       downloadFolder: opts.downloadFolder,
       providerName: opts.provider,
       maxRetries: opts.maxRetries,
+      mediaType: opts.mediaType,
       signal: ac.signal,
     });
 
