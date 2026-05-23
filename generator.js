@@ -86,7 +86,7 @@ export async function runGeneration(page, config) {
   }
 
   // Handle landing page: dismiss popups and prepare
-  await provider.preparePage(page);
+  await provider.preparePage(page, mediaType);
 
   // Main queue
   let promptIndex = 0;
@@ -113,7 +113,7 @@ export async function runGeneration(page, config) {
       await provider.submitPrompt(page, prompt, mediaType);
 
       // Phase 2: Wait for result
-      const result = await provider.waitForImages(page, index, imgSnapshot, signal);
+      const result = await provider.waitForImages(page, index, imgSnapshot, signal, mediaType);
 
       if (result.status === 'success') {
         // Phase 3: Download

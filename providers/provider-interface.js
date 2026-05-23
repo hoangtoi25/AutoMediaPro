@@ -16,14 +16,14 @@
  * @property {string} urlPattern - Substring to match in page URL
  * @property {string} loginUrl - URL to open for login flow
  *
- * @property {(page: import('puppeteer-core').Page) => Promise<void>} preparePage
- *   Prepare the page after navigation (dismiss popups, create new project, etc.)
+ * @property {(page: import('puppeteer-core').Page, mediaType?: string) => Promise<void>} preparePage
+ *   Prepare the page after navigation (dismiss popups, enter correct mode for image/video, etc.)
  *
  * @property {(page: import('puppeteer-core').Page, prompt: string) => Promise<void>} submitPrompt
  *   Clear input, type prompt, and click Generate / press Enter.
  *
- * @property {(page: import('puppeteer-core').Page, promptIndex: number, imgSnapshot: Set<string>, signal?: AbortSignal) => Promise<WaitResult>} waitForImages
- *   Poll the page until new images appear or timeout.
+ * @property {(page: import('puppeteer-core').Page, promptIndex: number, imgSnapshot: Set<string>, signal?: AbortSignal, mediaType?: string) => Promise<WaitResult>} waitForImages
+ *   Poll the page until new images/videos appear or timeout. mediaType ('image'|'video') hints for video-aware waiting.
  *
  * @property {(page: import('puppeteer-core').Page) => Promise<boolean>} checkLogin
  *   Return true if the user is logged in.

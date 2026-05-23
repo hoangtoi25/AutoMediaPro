@@ -126,8 +126,27 @@ export async function findSendButton(page) {
  * @param {string} prompt
  */
 export async function typePrompt(page, inputEl, prompt) {
-  // Click to focus
-  await inputEl.click();
+  // Click to focus — try Puppeteer click first, fallback to JS-level click
+  try {
+    await inputEl.click();
+  } catch (clickErr) {
+    // Fallback: use JavaScript click + focus directly on the DOM element
+    try {
+      await inputEl.evaluate(el => {
+        el.scrollIntoView({ behavior: 'instant', block: 'center' });
+        el.focus();
+        el.click();
+      });
+    } catch (jsClickErr) {
+      // Last resort: click via page coordinates
+      const box = await inputEl.boundingBox();
+      if (box) {
+        await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      } else {
+        throw new Error(`Cannot click input element: ${clickErr.message}`);
+      }
+    }
+  }
   await delay(TIMING.INPUT_SETTLE);
 
   // Select all + delete (works for both textarea and contenteditable)
