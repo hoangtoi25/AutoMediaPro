@@ -590,3 +590,152 @@ body {
     color: var(--text-muted);
     font-size: 0.85rem;
 }
+
+/* ── Provider Selector (Full - Step 2) ────────────────────── */
+.provider-selector-full {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.provider-card-full {
+    background: rgba(255, 255, 255, 0.03);
+    border: 2px solid var(--glass-border);
+    border-radius: 1rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    overflow: hidden;
+}
+
+.provider-card-full:hover {
+    border-color: rgba(99, 102, 241, 0.4);
+    background: rgba(99, 102, 241, 0.05);
+    transform: translateY(-2px);
+}
+
+.provider-card-full.active {
+    border-color: var(--primary);
+    background: rgba(99, 102, 241, 0.08);
+    box-shadow: 0 0 20px rgba(99, 102, 241, 0.15);
+}
+
+.provider-card-main {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem 1.2rem;
+}
+
+.provider-icon {
+    font-size: 1.8rem;
+    flex-shrink: 0;
+}
+
+.imagefx-icon { color: #4285F4; }
+.meta-icon { color: #1877F2; }
+
+.provider-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.provider-info h4 {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: white;
+}
+
+.provider-info p {
+    margin: 0.15rem 0 0;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.provider-check {
+    font-size: 1.2rem;
+    color: var(--glass-border);
+    transition: all 0.3s ease;
+    flex-shrink: 0;
+}
+
+.provider-card-full.active .provider-check {
+    color: var(--primary);
+}
+
+/* Login Status Row inside provider card */
+.provider-login-status {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.6rem 1.2rem;
+    background: rgba(0, 0, 0, 0.2);
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* Login Status Badge */
+.login-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    padding: 0.25rem 0.6rem;
+    border-radius: 1rem;
+    transition: all 0.3s ease;
+}
+
+.login-badge.unknown {
+    color: #9ca3af;
+    background: rgba(156, 163, 175, 0.1);
+    border: 1px solid rgba(156, 163, 175, 0.2);
+}
+
+.login-badge.logged-in {
+    color: #10b981;
+    background: rgba(16, 185, 129, 0.1);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.login-badge.not-logged-in {
+    color: #f59e0b;
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.login-badge.checking {
+    color: #6366f1;
+    background: rgba(99, 102, 241, 0.1);
+    border: 1px solid rgba(99, 102, 241, 0.3);
+    animation: pulse 1.5s infinite;
+}
+
+/* Inline Login Button */
+.btn-login-inline {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-main);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    font-size: 0.78rem;
+    padding: 0.35rem 0.8rem;
+    border-radius: 0.4rem;
+    transition: all 0.2s ease;
+}
+
+.btn-login-inline:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.btn-login-inline.btn-meta-outline:hover:not(:disabled) {
+    background: rgba(24, 119, 242, 0.15);
+    border-color: rgba(24, 119, 242, 0.4);
+}
+
+/* ── Compact Button ───────────────────────────────────────── */
+.btn-sm {
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+}
+
+

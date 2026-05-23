@@ -34,8 +34,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
-        // Update Output Folder in Step 3 Preview if they navigate manually
-        if (stepNumber == 3) {
+        // Update Output Folder in Step 2 Preview if they navigate manually
+        if (stepNumber == 2) {
             const currentFolder = document.getElementById('folderName').value.trim();
             const outputFolderElement = document.getElementById('output-folder-name');
             if (outputFolderElement) {
@@ -48,8 +48,8 @@ document.addEventListener('DOMContentLoaded', () => {
         btn.addEventListener('click', (e) => {
             const target = parseInt(e.currentTarget.dataset.target);
 
-            // Validate Step 2 → Step 3
-            if (target === 3) {
+            // Validate Step 1 → Step 2
+            if (target === 2) {
                 const folderName = document.getElementById('folderName').value.trim();
                 if (!folderName) {
                     alert('⚠️ Vui lòng nhập Output Folder Name!');
@@ -104,6 +104,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (c.id === `tab-${targetTab}`) c.classList.add('active');
                 else c.classList.remove('active');
             });
+        });
+    });
+
+    // --- Provider Selection Logic ---
+    let selectedProvider = 'imagefx';
+    const providerCards = document.querySelectorAll('.provider-card-full');
+    providerCards.forEach(card => {
+        card.addEventListener('click', (e) => {
+            // Don't trigger selection when clicking the login button
+            if (e.target.closest('.btn-login-inline')) return;
+            providerCards.forEach(c => c.classList.remove('active'));
+            card.classList.add('active');
+            selectedProvider = card.dataset.provider;
         });
     });
 
@@ -190,31 +203,70 @@ document.addEventListener('DOMContentLoaded', () => {
         terminalOutput.scrollTop = terminalOutput.scrollHeight;
     }
 
+    // --- Login Status ---
+    function setLoginStatus(providerName, status) {
+        // status: 'unknown' | 'checking' | 'logged-in' | 'not-logged-in'
+        const badgeId = providerName === 'meta-ai' ? 'login-status-meta-ai' : 'login-status-imagefx';
+        const badge = document.getElementById(badgeId);
+        if (!badge) return;
+
+        badge.className = `login-badge ${status}`;
+
+        const iconMap = {
+            'unknown': '<i class="ph ph-question"></i> Chưa kiểm tra',
+            'checking': '<i class="ph ph-spinner-gap"></i> Đang kiểm tra...',
+            'logged-in': '<i class="ph-fill ph-check-circle"></i> Đã đăng nhập',
+            'not-logged-in': '<i class="ph ph-warning"></i> Chưa đăng nhập',
+        };
+        badge.innerHTML = iconMap[status] || iconMap['unknown'];
+    }
+
     // --- API Calls ---
     
-    // Login
-    document.getElementById('btn-login').addEventListener('click', async () => {
+    // Login — ImageFX (Google)
+    document.getElementById('btn-login-imagefx').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await handleLogin('imagefx');
+    });
+
+    // Login — Meta AI (Facebook)
+    document.getElementById('btn-login-meta').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await handleLogin('meta-ai');
+    });
+
+    async function handleLogin(provider) {
         terminalOutput.innerHTML = '';
-        addLogLine('Khởi động tiến trình login...', 'info');
+        const displayName = provider === 'meta-ai' ? 'Meta AI (Facebook)' : 'ImageFX (Google)';
+        addLogLine(`Khởi động tiến trình login ${displayName}...`, 'info');
         setSystemStatus(true);
-        goToStep(3); // Jump to terminal to see login process
+        setLoginStatus(provider, 'checking');
         
         try {
-            const response = await fetch('/api/login', { method: 'POST' });
+            const response = await fetch('/api/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ provider }),
+            });
             if (!response.ok) {
                 const err = await response.json();
                 addLogLine(`Error: ${err.error}`, 'error');
                 setSystemStatus(false);
+                setLoginStatus(provider, 'not-logged-in');
                 return;
             }
             
-            setupEventSource(response);
+            setupEventSource(response, () => {
+                // On completion callback — assume login succeeded
+                setLoginStatus(provider, 'logged-in');
+            });
             
         } catch (error) {
             addLogLine(`Connection error: ${error.message}`, 'error');
             setSystemStatus(false);
+            setLoginStatus(provider, 'not-logged-in');
         }
-    });
+    }
 
     // Start Generation
     const btnStart = document.getElementById('btn-start');
@@ -225,7 +277,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (!folderName) {
             alert('⚠️ Vui lòng nhập Output Folder Name!');
-            goToStep(2);
+            goToStep(1);
             return;
         }
 
@@ -260,6 +312,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Display the output folder in Step 3
         document.getElementById('output-folder-name').innerText = folderName;
+
+        // Add provider to form data
+        formData.append('provider', selectedProvider);
 
         terminalOutput.innerHTML = '';
         addLogLine(`Khởi động tiến trình tạo ảnh (Folder: ${folderName})...`, 'info');
@@ -303,7 +358,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    async function setupEventSource(response) {
+    async function setupEventSource(response, onComplete) {
         const reader = response.body.getReader();
         const decoder = new TextDecoder('utf-8');
         let buffer = '';
@@ -360,6 +415,7 @@ document.addEventListener('DOMContentLoaded', () => {
         setSystemStatus(false);
         btnStart.disabled = false;
         btnStop.disabled = true;
+        if (onComplete) onComplete();
     }
 
     let currentPromptList = [];

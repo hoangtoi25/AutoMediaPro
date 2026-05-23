@@ -3,12 +3,14 @@
  *
  * Usage:
  *   node index.js --prompts ./prompts/my-prompts.txt --folder "ProjectName"
+ *   node index.js --prompts ./prompts/my-prompts.txt --folder "ProjectName" --provider meta-ai
  *   node index.js --prompts ./prompts/my-prompts.txt --folder "ProjectName" --new-chrome
  *
  * Options:
  *   --prompts, -p   Path to text file with prompts (1 per line)
  *   --folder, -f    Download subfolder name (default: "AutoMedia")
  *   --retries, -r   Max retries per prompt (default: 2)
+ *   --provider      Image generation provider: 'imagefx' (default) or 'meta-ai'
  *   --new-chrome     Force launch a new Chrome instance
  *   --login          Open Chrome for manual login, then exit
  */
@@ -18,7 +20,7 @@ import { existsSync } from 'fs';
 import { resolve } from 'path';
 import { getBrowser } from './browser.js';
 import { runGeneration } from './generator.js';
-import { TARGET_URL } from './config.js';
+import { initProviders, getProvider, listProviders } from './providers/provider-interface.js';
 import { log } from './logger.js';
 
 // ── Parse CLI Arguments ───────────────────────────────────────
@@ -31,6 +33,7 @@ function parseArgs() {
     maxRetries: 2,
     forceNewChrome: false,
     loginMode: false,
+    provider: 'imagefx',
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -46,6 +49,9 @@ function parseArgs() {
       case '--retries':
       case '-r':
         opts.maxRetries = parseInt(args[++i]) || 2;
+        break;
+      case '--provider':
+        opts.provider = args[++i];
         break;
       case '--new-chrome':
         opts.forceNewChrome = true;
@@ -216,21 +222,36 @@ function stripMarkdownFormatting(text) {
 async function main() {
   console.log(`
 ╔══════════════════════════════════════════╗
-║          🎨 AutoMediaPro v1.0           ║
-║   Puppeteer Automation for ImageFX      ║
+║          🎨 AutoMediaPro v2.0           ║
+║   Multi-Provider Image Generation       ║
 ╚══════════════════════════════════════════╝
 `);
 
+  // Initialize all providers
+  await initProviders();
+
   const opts = parseArgs();
+
+  // Validate provider
+  let provider;
+  try {
+    provider = getProvider(opts.provider);
+  } catch (e) {
+    log.error(e.message);
+    log.info(`Providers có sẵn: ${listProviders().join(', ')}`);
+    process.exit(1);
+  }
+
+  log.info(`Provider: ${provider.displayName}`);
 
   // ── Login Mode ──────────────────────────────────────────
   if (opts.loginMode) {
-    log.info('Chế độ LOGIN: Mở Chrome để đăng nhập Google...');
+    log.info(`Chế độ LOGIN: Mở Chrome để đăng nhập ${provider.displayName}...`);
     log.info('Sau khi đăng nhập xong, đóng Chrome và chạy lại script.');
     const { browser } = await getBrowser({ forceNew: true });
     const page = (await browser.pages())[0] || await browser.newPage();
-    await page.goto(TARGET_URL, { waitUntil: 'networkidle2' });
-    log.success('Chrome đã mở. Đăng nhập Google rồi đóng trình duyệt.');
+    await page.goto(provider.loginUrl, { waitUntil: 'networkidle2' });
+    log.success(`Chrome đã mở. Đăng nhập ${provider.displayName} rồi đóng trình duyệt.`);
     // Keep alive — user closes manually
     return;
   }
@@ -239,11 +260,15 @@ async function main() {
   if (!opts.promptsFile) {
     console.log(`
 Cách dùng:
-  node index.js --prompts <file.txt|file.md> --folder <tên_folder>
+  node index.js --prompts <file.txt|file.md> --folder <tên_folder> [--provider <name>]
 
 Ví dụ:
   node index.js -p ./prompts/my-prompts.txt -f "MyProject"
-  node index.js -p ./prompts/stickman.md -f "Stickman"
+  node index.js -p ./prompts/stickman.md -f "Stickman" --provider meta-ai
+
+Providers có sẵn:
+  imagefx    → Google Labs ImageFX (mặc định)
+  meta-ai    → Meta AI Imagine
 
 Hỗ trợ file:
   .txt  → Mỗi dòng = 1 prompt, dòng # = comment
@@ -253,11 +278,13 @@ Các option:
   --prompts, -p    File chứa prompts (.txt hoặc .md)
   --folder, -f     Tên thư mục download (default: AutoMedia)
   --retries, -r    Số lần retry tối đa (default: 2)
+  --provider       Chọn engine tạo ảnh (default: imagefx)
   --new-chrome     Bắt buộc mở Chrome mới
   --login          Mở Chrome để đăng nhập (chạy 1 lần đầu)
 
-Bước đầu tiên (chỉ cần 1 lần):
-  node index.js --login
+Bước đầu tiên (chỉ cần 1 lần cho mỗi provider):
+  node index.js --login --provider imagefx
+  node index.js --login --provider meta-ai
 `);
     process.exit(0);
   }
@@ -275,57 +302,50 @@ Bước đầu tiên (chỉ cần 1 lần):
   let page;
   const pages = await browser.pages();
 
-  // Try to find an existing ImageFX tab
-  const fxPage = pages.find(p => {
-    try { return p.url().includes('labs.google/fx'); } catch { return false; }
+  // Try to find an existing tab for this provider
+  const providerPage = pages.find(p => {
+    try { return p.url().includes(provider.urlPattern); } catch { return false; }
   });
 
-  if (fxPage) {
-    page = fxPage;
-    log.info('Đã tìm thấy tab ImageFX đang mở');
+  if (providerPage) {
+    page = providerPage;
+    log.info(`Đã tìm thấy tab ${provider.displayName} đang mở`);
     // Refresh to ensure frame is active
     try {
       await page.reload({ waitUntil: 'networkidle2', timeout: 30000 });
-      log.step('Đã refresh tab ImageFX');
+      log.step(`Đã refresh tab ${provider.displayName}`);
     } catch (e) {
       log.warn(`Tab cũ bị lỗi (${e.message}), tạo tab mới...`);
       page = await browser.newPage();
-      await page.goto(TARGET_URL, { waitUntil: 'networkidle2', timeout: 30000 });
+      await page.goto(provider.targetUrl, { waitUntil: 'networkidle2', timeout: 30000 });
     }
   } else {
     page = pages.length > 0 ? pages[0] : await browser.newPage();
-    log.step('Đang mở ImageFX...');
+    log.step(`Đang mở ${provider.displayName}...`);
     try {
-      await page.goto(TARGET_URL, { waitUntil: 'networkidle2', timeout: 30000 });
+      await page.goto(provider.targetUrl, { waitUntil: 'networkidle2', timeout: 30000 });
     } catch (e) {
       log.warn(`Tab hiện tại lỗi (${e.message}), tạo tab mới...`);
       page = await browser.newPage();
-      await page.goto(TARGET_URL, { waitUntil: 'networkidle2', timeout: 30000 });
+      await page.goto(provider.targetUrl, { waitUntil: 'networkidle2', timeout: 30000 });
     }
   }
 
   // Wait for page to fully render
-  const delay = (ms) => new Promise(r => setTimeout(r, ms));
-  await delay(5000); // Give time for popups and dynamic content to load
+  const delayFn = (ms) => new Promise(r => setTimeout(r, ms));
+  await delayFn(5000); // Give time for popups and dynamic content to load
 
-  const isLoggedIn = await page.evaluate(() => {
-    // If we see a Sign In button, we're not logged in
-    for (const el of document.querySelectorAll('a, button')) {
-      const text = el.textContent.trim().toLowerCase();
-      if (text === 'sign in' || text === 'đăng nhập') return false;
-    }
-    return true;
-  });
+  const isLoggedIn = await provider.checkLogin(page);
 
   if (!isLoggedIn) {
-    log.error('Chưa đăng nhập Google!');
-    log.info('Chạy: node index.js --login');
-    log.info('Đăng nhập Google trong Chrome, đóng lại, rồi chạy lại script.');
+    log.error(`Chưa đăng nhập ${provider.displayName}!`);
+    log.info(`Chạy: node index.js --login --provider ${provider.name}`);
+    log.info(`Đăng nhập trong Chrome, đóng lại, rồi chạy lại script.`);
     if (isNew) await browser.close();
     process.exit(1);
   }
 
-  log.success('Đã đăng nhập Google');
+  log.success(`Đã đăng nhập ${provider.displayName}`);
 
   // Set up abort controller for graceful stop
   const ac = new AbortController();
@@ -339,6 +359,7 @@ Bước đầu tiên (chỉ cần 1 lần):
     const result = await runGeneration(page, {
       prompts,
       downloadFolder: opts.downloadFolder,
+      providerName: opts.provider,
       maxRetries: opts.maxRetries,
       signal: ac.signal,
     });

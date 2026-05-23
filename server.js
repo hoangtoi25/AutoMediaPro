@@ -51,13 +51,15 @@ app.post('/api/login', (req, res) => {
         return res.status(400).json({ error: 'A process is already running.' });
     }
 
+    const provider = req.body?.provider || 'imagefx';
+
     res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive'
     });
 
-    currentProcess = spawn('node', ['index.js', '--login'], { cwd: __dirname });
+    currentProcess = spawn('node', ['index.js', '--login', '--provider', provider], { cwd: __dirname });
 
     const sendLog = (type, message) => {
         res.write(`data: ${JSON.stringify({ type, message })}\n\n`);
@@ -107,7 +109,8 @@ app.post('/api/generate', upload.single('promptFile'), (req, res) => {
         'Connection': 'keep-alive'
     });
 
-    currentProcess = spawn('node', ['index.js', '-p', promptFilePath, '-f', folder], { cwd: __dirname });
+    const providerFlag = req.body.provider || 'imagefx';
+    currentProcess = spawn('node', ['index.js', '-p', promptFilePath, '-f', folder, '--provider', providerFlag], { cwd: __dirname });
 
     const sendLog = (type, message) => {
         res.write(`data: ${JSON.stringify({ type, message })}\n\n`);
