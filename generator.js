@@ -77,6 +77,19 @@ export async function runGeneration(page, config) {
 
   log.info(`Chiến lược đặt tên ảnh: ${usePromptNumbers ? 'Giữ số thứ tự theo phân đoạn SRT (ví dụ: 3.jpg, 7.jpg)' : 'Tự động đánh số tuần tự từ 1 (ví dụ: 1.jpg, 2.jpg)'}`);
 
+  // Parse --ar (aspect ratio) from the first prompt to apply to settings panel
+  let detectedAspectRatio = 'auto';
+  if (prompts.length > 0) {
+    const arMatch = prompts[0].match(/--ar\s+([\d]+:[\d]+)/i);
+    if (arMatch) {
+      detectedAspectRatio = arMatch[1]; // e.g. '9:16' or '16:9'
+      log.info(`Tỷ lệ khung hình từ prompt đầu: ${detectedAspectRatio}`);
+    }
+  }
+
+  // Strip --ar flags from all prompts (ImageFX uses settings panel, not prompt text)
+  const cleanPrompts = prompts.map(p => p.replace(/\s*--ar\s+[\d]+:[\d]+/gi, '').trim());
+
   // Ensure we're on the provider's page
   const currentUrl = page.url();
   if (!currentUrl.includes(provider.urlPattern)) {
@@ -85,12 +98,13 @@ export async function runGeneration(page, config) {
     await delay(TIMING.NAVIGATE_WAIT);
   }
 
-  // Handle landing page: dismiss popups and prepare
-  await provider.preparePage(page, mediaType);
+  // Handle landing page: dismiss popups, select mode, configure settings
+  await provider.preparePage(page, mediaType, { aspectRatio: detectedAspectRatio });
 
-  // Main queue
+
+  // Main queue (use cleanPrompts with --ar stripped for actual submission)
   let promptIndex = 0;
-  const queue = prompts.map((p, i) => ({ prompt: p, index: i + 1, retryCount: 0 }));
+  const queue = cleanPrompts.map((p, i) => ({ prompt: p, index: i + 1, retryCount: 0 }));
 
   while (queue.length > 0 || retryQueue.length > 0) {
     if (signal?.aborted) {
@@ -118,8 +132,19 @@ export async function runGeneration(page, config) {
       if (result.status === 'success') {
         // Phase 3: Download
         const { images } = result;
-        const vidCount = images.filter(i => i.type === 'video').length;
-        const imgCount = images.length - vidCount;
+
+        // In video mode: only download videos, skip thumbnail images
+        let downloadList = images;
+        if (mediaType === 'video') {
+          const videos = images.filter(i => i.type === 'video');
+          if (videos.length > 0) {
+            downloadList = videos;
+          }
+          // If no videos found, fall back to all media (images as last resort)
+        }
+
+        const vidCount = downloadList.filter(i => i.type === 'video').length;
+        const imgCount = downloadList.length - vidCount;
         const mediaLabel = [imgCount > 0 ? `${imgCount} ảnh` : '', vidCount > 0 ? `${vidCount} video` : ''].filter(Boolean).join(' + ');
         log.success(`Prompt #${index}: ${mediaLabel} tạo xong`);
 
@@ -132,19 +157,19 @@ export async function runGeneration(page, config) {
           }
         }
 
-        for (let j = 0; j < images.length; j++) {
-          if (downloadedSrcs.has(images[j].src)) {
+        for (let j = 0; j < downloadList.length; j++) {
+          if (downloadedSrcs.has(downloadList[j].src)) {
             log.warn(`Media ${j + 1} của prompt #${index} trùng URL với media trước đó, vẫn tiến hành lưu để giữ thứ tự.`);
           }
-          downloadedSrcs.add(images[j].src);
+          downloadedSrcs.add(downloadList[j].src);
 
-          const isVideo = images[j].type === 'video';
+          const isVideo = downloadList[j].type === 'video';
           const ext = isVideo ? '.mp4' : '.jpg';
-          const filename = images.length === 1
+          const filename = downloadList.length === 1
             ? `${filePrefix}${ext}`
             : `${filePrefix}_${j + 1}${ext}`;
 
-          await downloadImage(page, images[j].src, filename, downloadFolder);
+          await downloadImage(page, downloadList[j].src, filename, downloadFolder);
           await delay(TIMING.DOWNLOAD_SETTLE);
         }
 

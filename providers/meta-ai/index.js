@@ -278,7 +278,7 @@ async function clickCreateSidebar(page) {
  *    - IMAGE: Click "Create image" action chip
  *    - VIDEO: Click "Create" sidebar → wait for new input
  */
-async function preparePage(page, mediaType = 'image') {
+async function preparePage(page, mediaType = 'image', options = {}) {
   log.step('[Meta AI] Kiểm tra trạng thái trang...');
 
   // Step 1: Dismiss cookie/welcome popups

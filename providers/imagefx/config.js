@@ -6,9 +6,9 @@
  */
 
 // ── Target URL ────────────────────────────────────────────────
-export const TARGET_URL = 'https://labs.google/fx/tools/image-fx';
+export const TARGET_URL = 'https://labs.google/fx/vi/tools/flow';
 export const URL_PATTERN = 'labs.google/fx';
-export const LOGIN_URL = 'https://labs.google/fx/tools/image-fx';
+export const LOGIN_URL = 'https://labs.google/fx/vi/tools/flow';
 
 // ── Selectors ─────────────────────────────────────────────────
 export const SELECTORS = {
@@ -25,7 +25,24 @@ export const PLACEHOLDER_TEXTS = [
   'What do you want to create?',
 ];
 
-export const GENERATE_BTN_KEYWORDS = ['Banana', 'Imagen'];
+export const GENERATE_BTN_KEYWORDS = ['Banana', 'Imagen', 'Veo'];
+
+// ── Video Mode Settings ───────────────────────────────────────
+// Labels for Image/Video tab buttons in the settings panel
+export const MEDIA_TAB_LABELS = {
+  image: ['Image', 'Hình ảnh'],
+  video: ['Video'],
+};
+
+// Preferred video settings (applied during preparePage when mediaType='video')
+export const VIDEO_DEFAULTS = {
+  // Aspect ratio: '16:9', '9:16', or 'auto' (parse from first prompt's --ar flag)
+  ASPECT_RATIO: 'auto',
+  // Duration: '4s', '6s', or '8s'
+  DURATION: '8s',
+  // Preferred model name substring (leave empty to keep default)
+  MODEL: '',
+};
 
 export const ERROR_KEYWORDS = [
   'không thể tạo',

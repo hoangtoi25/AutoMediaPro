@@ -77,8 +77,19 @@ export async function downloadImage(page, url, filename, folder) {
     // For images: new tab first (Strategy 1), then page fetch, then direct.
 
     if (isVideo) {
-      // Video: page fetch → direct fetch → screenshot
-      log.step(`[Download] Strategy 2 (video-first): Page fetch...`);
+      // Video: cookies-based fetch → page fetch → direct fetch → new-tab → screenshot
+      // Note: new-tab HANGS for video URLs because Chrome renders its built-in video player.
+      // cookies-based fetch uses Node.js fetch with browser cookies, avoiding Chrome rendering.
+
+      log.step(`[Download] Strategy C (video): Cookies-based fetch...`);
+      const bufferC = await downloadViaCookieFetch(page, url);
+      if (bufferC) {
+        await writeFile(filePath, bufferC);
+        log.download(`${folder}/${filename} (cookie-fetch)`);
+        return { ok: true, path: filePath };
+      }
+      log.step(`[Download] Strategy C thất bại, thử page fetch...`);
+
       const buffer2 = await downloadViaPageFetch(page, url, true);
       if (buffer2) {
         await writeFile(filePath, buffer2);
@@ -93,16 +104,7 @@ export async function downloadImage(page, url, filename, folder) {
         log.download(`${folder}/${filename} (direct)`);
         return { ok: true, path: filePath };
       }
-      log.step(`[Download] Strategy 3 thất bại, thử new tab (fallback)...`);
-
-      // Last resort for video: try new tab with short timeout
-      const buffer1 = await downloadViaNewTab(page, url, 10000);
-      if (buffer1) {
-        await writeFile(filePath, buffer1);
-        log.download(`${folder}/${filename} (new-tab)`);
-        return { ok: true, path: filePath };
-      }
-      log.step(`[Download] All video strategies thất bại, thử screenshot frame...`);
+      log.step(`[Download] All video fetch strategies thất bại, thử screenshot frame...`);
 
       const screenshotted = await screenshotMediaElement(page, url, filePath);
       if (screenshotted) {
@@ -331,6 +333,56 @@ async function downloadViaPageFetch(page, url, isVideo = false) {
   }
 }
 
+// ── Strategy C: Cookie-based Fetch (Node.js with browser cookies) ───
+
+/**
+ * Download using Node.js fetch with cookies extracted from the browser.
+ * This avoids Chrome's built-in video player which causes new-tab to hang.
+ * The cookies provide authentication for Google Flow API redirect URLs.
+ */
+async function downloadViaCookieFetch(page, url) {
+  if (url.startsWith('blob:')) return null;
+
+  try {
+    // Extract cookies from the browser
+    const cookies = await page.cookies();
+    const cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+
+    log.step(`[Download] Cookie fetch: ${cookies.length} cookies, following redirects...`);
+
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'video/mp4,video/webm,video/*,image/*,*/*;q=0.8',
+        'Cookie': cookieHeader,
+        'Referer': 'https://labs.google/',
+      },
+      redirect: 'follow',
+    });
+
+    if (!response.ok) {
+      log.warn(`[Download] Cookie fetch HTTP ${response.status} ${response.statusText}`);
+      return null;
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    const contentLength = response.headers.get('content-length') || '?';
+    log.step(`[Download] Cookie fetch response: ${contentType} (${contentLength} bytes)`);
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (buffer.length < 500) {
+      log.warn(`[Download] Cookie fetch: file too small (${buffer.length} bytes)`);
+      return null;
+    }
+
+    log.step(`[Download] Cookie fetch OK: ${(buffer.length / 1024).toFixed(0)}KB`);
+    return buffer;
+  } catch (e) {
+    log.warn(`[Download] Cookie fetch error: ${e.message}`);
+    return null;
+  }
+}
+
 // ── Strategy 3: Direct Fetch ────────────────────────────────────
 
 /**
@@ -345,8 +397,8 @@ async function downloadViaDirect(url) {
     const response = await fetch(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,video/*,*/*;q=0.8',
-        'Referer': 'https://www.meta.ai/',
+        'Accept': 'image/avif,image/webp,image/apng,image/*,video/mp4,video/webm,video/*,*/*;q=0.8',
+        'Referer': 'https://labs.google/',
         'Sec-Fetch-Dest': 'image',
         'Sec-Fetch-Mode': 'no-cors',
       },
