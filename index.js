@@ -37,6 +37,7 @@ function parseArgs() {
     provider: 'imagefx',
     mediaType: 'image',
     flowMode: false,
+    aspectRatio: null,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -64,6 +65,10 @@ function parseArgs() {
         break;
       case '--flow':
         opts.flowMode = true;
+        break;
+      case '--aspect-ratio':
+      case '-a':
+        opts.aspectRatio = args[++i];
         break;
       case '--login':
         opts.loginMode = true;
@@ -186,8 +191,8 @@ function parseMdPrompts(content) {
 
     allPrompts.push(promptText);
 
-    // Track numbered prompts separately (e.g., "1. text", "42. text", "1: text")
-    if (/^\d+[.\-:]\s/.test(promptText)) {
+    // Track numbered prompts separately (e.g., "1. text", "42. text", "1: text", "2.1. text")
+    if (/^\d+(?:\.\d+)*[.\-:]\s/.test(promptText)) {
       numberedPrompts.push(promptText);
     }
   }
@@ -273,10 +278,10 @@ async function loadFlowPrompts(filePath) {
     // Skip non-prompt lines
     if (!currentSection) continue;
 
-    // Parse numbered prompts: "1. prompt text" or "1: prompt text"
-    const match = line.match(/^(\d+)[.:\-)]\s+(.+)/);
+    // Parse numbered prompts: "1. prompt text", "1: prompt text", "2.1. prompt text"
+    const match = line.match(/^(\d+(?:\.\d+)*)[.:\-)]\s+(.+)/);
     if (match) {
-      const idx = parseInt(match[1]);
+      const idx = match[1];
       const promptText = match[2].trim();
 
       if (currentSection === 'image') {
@@ -299,7 +304,13 @@ async function loadFlowPrompts(filePath) {
   }
 
   // Sort by index
-  pairs.sort((a, b) => a.index - b.index);
+  pairs.sort((a, b) => {
+    const parseIdx = (x) => {
+      const parts = String(x).split('.').map(Number);
+      return parts[0] * 1000 + (parts[1] || 0);
+    };
+    return parseIdx(a.index) - parseIdx(b.index);
+  });
 
   if (pairs.length === 0) {
     throw new Error('Không tìm thấy cặp prompt (image + video) nào trong file!');
@@ -477,6 +488,7 @@ Bước đầu tiên (chỉ cần 1 lần cho mỗi provider):
         providerName: opts.provider,
         maxRetries: opts.maxRetries,
         signal: ac.signal,
+        aspectRatio: opts.aspectRatio,
       });
     } else {
       // ── Normal Pipeline: single media type ────────────
@@ -487,6 +499,7 @@ Bước đầu tiên (chỉ cần 1 lần cho mỗi provider):
         maxRetries: opts.maxRetries,
         mediaType: opts.mediaType,
         signal: ac.signal,
+        aspectRatio: opts.aspectRatio,
       });
     }
 

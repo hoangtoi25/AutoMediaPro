@@ -112,8 +112,10 @@ app.post('/api/generate', upload.single('promptFile'), (req, res) => {
     const providerFlag = req.body.provider || 'imagefx';
     const mediaTypeFlag = req.body.mediaType || 'image';
     const useFlow = req.body.flowMode === 'true' || req.body.flowMode === true;
+    const aspectRatio = req.body.aspectRatio;
     const args = ['index.js', '-p', promptFilePath, '-f', folder, '--provider', providerFlag, '--media-type', mediaTypeFlag];
     if (useFlow) args.push('--flow');
+    if (aspectRatio) args.push('--aspect-ratio', aspectRatio);
     currentProcess = spawn('node', args, { cwd: __dirname });
 
     const sendLog = (type, message) => {

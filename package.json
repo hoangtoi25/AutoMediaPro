@@ -10,7 +10,7 @@
     "ui": "node server.js",
     "electron-start": "electron electron-main.js",
     "build:win": "electron-packager . \"AutoMedia Pro\" --platform=win32 --arch=x64 --out=dist --overwrite --icon=public/icon.png --ignore=\"^/dist|^/prompts|^/browser-profiles\"",
-    "build:portable-zip": "npm run build:win && powershell -Command \"Compress-Archive -Path 'dist/AutoMedia Pro-win32-x64' -DestinationPath 'dist/AutoMediaPro-Portable.zip' -Force\"",
+    "build:portable-zip": "npm run build:win && tar -a -c -f dist/AutoMediaPro-Portable.zip -C dist \"AutoMedia Pro-win32-x64\"",
     "build:portable-exe": "electron-builder --win",
     "build:all-portable": "npm run build:portable-zip && npm run build:portable-exe"
   },

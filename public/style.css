@@ -765,7 +765,8 @@ body {
     border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.media-type-btn {
+.media-type-btn,
+.aspect-ratio-btn {
     display: flex;
     align-items: center;
     gap: 0.4rem;
@@ -780,12 +781,14 @@ body {
     font-family: inherit;
 }
 
-.media-type-btn:hover:not(.active) {
+.media-type-btn:hover:not(.active),
+.aspect-ratio-btn:hover:not(.active) {
     color: var(--text-main);
     background: rgba(255, 255, 255, 0.06);
 }
 
-.media-type-btn.active {
+.media-type-btn.active,
+.aspect-ratio-btn.active {
     color: white;
     background: var(--primary);
     box-shadow: 0 0 12px rgba(99, 102, 241, 0.35);

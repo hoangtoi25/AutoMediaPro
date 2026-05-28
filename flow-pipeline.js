@@ -49,7 +49,11 @@ export async function runFlowPipeline(page, config) {
     providerName = 'imagefx',
     maxRetries = 2,
     signal,
+    aspectRatio = null,
   } = config;
+
+  const imageAspectRatio = aspectRatio || FLOW_DEFAULTS.IMAGE_ASPECT_RATIO;
+  const videoAspectRatio = aspectRatio || FLOW_DEFAULTS.VIDEO_ASPECT_RATIO;
 
   const provider = getProvider(providerName);
   const results = [];
@@ -57,8 +61,8 @@ export async function runFlowPipeline(page, config) {
   log.info(`\n${'═'.repeat(50)}`);
   log.info(`🔄 FLOW PIPELINE: ${pairs.length} cặp prompt (Image → Video)`);
   log.info(`📁 Output: ${downloadFolder}/`);
-  log.info(`🎨 Image: ${FLOW_DEFAULTS.IMAGE_ASPECT_RATIO}, ${FLOW_DEFAULTS.IMAGE_SCALE}, model="${FLOW_DEFAULTS.IMAGE_MODEL || 'default'}"`);
-  log.info(`🎬 Video: ${FLOW_DEFAULTS.VIDEO_ASPECT_RATIO}, ${FLOW_DEFAULTS.VIDEO_DURATION}, model="${FLOW_DEFAULTS.VIDEO_MODEL || 'default'}"`);
+  log.info(`🎨 Image: ${imageAspectRatio}, ${FLOW_DEFAULTS.IMAGE_SCALE}, model="${FLOW_DEFAULTS.IMAGE_MODEL || 'default'}"`);
+  log.info(`🎬 Video: ${videoAspectRatio}, ${FLOW_DEFAULTS.VIDEO_DURATION}, model="${FLOW_DEFAULTS.VIDEO_MODEL || 'default'}"`);
   log.info(`${'═'.repeat(50)}\n`);
 
   // Ensure we're on the provider's page
@@ -110,9 +114,9 @@ export async function runFlowPipeline(page, config) {
         await selectMediaMode(page, 'image');
         await delay(2000); // Chờ settings panel load sau khi chuyển mode
 
-        // 1b. Configure aspect ratio: 9:16
-        log.step(`${pairLabel}   → Chọn tỉ lệ ${FLOW_DEFAULTS.IMAGE_ASPECT_RATIO}`);
-        const ratioOk = await configureImageSettings(page, { aspectRatio: FLOW_DEFAULTS.IMAGE_ASPECT_RATIO });
+        // 1b. Configure aspect ratio
+        log.step(`${pairLabel}   → Chọn tỉ lệ ${imageAspectRatio}`);
+        const ratioOk = await configureImageSettings(page, { aspectRatio: imageAspectRatio });
         await delay(500);
 
         // 1c. Configure scale: 1x
@@ -224,9 +228,9 @@ export async function runFlowPipeline(page, config) {
         await delay(2000); // Chờ settings panel load sau khi chuyển mode
 
         // 2b. Configure video settings (aspect ratio + duration)
-        log.step(`${pairLabel}   → Chọn tỉ lệ ${FLOW_DEFAULTS.VIDEO_ASPECT_RATIO}, thời lượng ${FLOW_DEFAULTS.VIDEO_DURATION}`);
+        log.step(`${pairLabel}   → Chọn tỉ lệ ${videoAspectRatio}, thời lượng ${FLOW_DEFAULTS.VIDEO_DURATION}`);
         await configureVideoSettings(page, {
-          aspectRatio: FLOW_DEFAULTS.VIDEO_ASPECT_RATIO,
+          aspectRatio: videoAspectRatio,
           duration: FLOW_DEFAULTS.VIDEO_DURATION,
         });
         await delay(500);

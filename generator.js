@@ -33,7 +33,7 @@ const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
  * @returns {Promise<{results: Array<{prompt: string, status: string, error?: string}>}>}
  */
 export async function runGeneration(page, config) {
-  const { prompts, downloadFolder, providerName = 'imagefx', maxRetries = 2, mediaType = 'image', signal } = config;
+  const { prompts, downloadFolder, providerName = 'imagefx', maxRetries = 2, mediaType = 'image', signal, aspectRatio } = config;
   const provider = getProvider(providerName);
   const results = [];
   const downloadedSrcs = new Set();
@@ -47,9 +47,10 @@ export async function runGeneration(page, config) {
   let allHaveNumbers = true;
 
   for (const p of prompts) {
-    const match = p.trim().match(/^(\d+)[.\-:]?\s+/);
+    const match = p.trim().match(/^(\d+(?:\.\d+)*)[.\-:]?\s+/);
     if (match) {
-      promptNumbers.push(parseInt(match[1]));
+      // Keep as string to preserve '2.1'
+      promptNumbers.push(match[1]);
     } else {
       promptNumbers.push(null);
       allHaveNumbers = false;
@@ -58,27 +59,28 @@ export async function runGeneration(page, config) {
 
   if (allHaveNumbers && promptNumbers.length > 0) {
     let hasGaps = false;
-    let lastNum = promptNumbers[0];
-    for (let i = 1; i < promptNumbers.length; i++) {
-      if (promptNumbers[i] !== lastNum + 1) {
+    // For string numbers with decimals (e.g., '2.1'), we can't easily check for sequential +1 gaps.
+    // If they are not exactly the '1', '2', '3' sequence, we assume it's a custom numbering (hasGaps = true).
+    for (let i = 0; i < promptNumbers.length; i++) {
+      if (promptNumbers[i] !== String(i + 1)) {
         hasGaps = true;
         break;
       }
-      lastNum = promptNumbers[i];
     }
 
     // Nếu có khoảng trống nhảy số (ví dụ: [3, 4, 5, 7] - khuyết 6)
     // hoặc bắt đầu từ một số khác 1 (ví dụ: [4, 5] nhưng là phân đoạn của script lớn hơn),
+    // hoặc có chứa số thập phân (ví dụ: 2.1),
     // chúng ta sẽ giữ nguyên số ở đầu prompt để khớp với file SRT phụ đề của Capcut.
-    if (hasGaps || promptNumbers[0] !== 1) {
+    if (hasGaps || promptNumbers[0] !== '1') {
       usePromptNumbers = true;
     }
   }
 
   log.info(`Chiến lược đặt tên ảnh: ${usePromptNumbers ? 'Giữ số thứ tự theo phân đoạn SRT (ví dụ: 3.jpg, 7.jpg)' : 'Tự động đánh số tuần tự từ 1 (ví dụ: 1.jpg, 2.jpg)'}`);
 
-  // Parse --ar (aspect ratio) from the first prompt to apply to settings panel
-  let detectedAspectRatio = 'auto';
+  // Parse --ar (aspect ratio) from the first prompt to apply to settings panel, or fallback to configuration aspect ratio
+  let detectedAspectRatio = aspectRatio || 'auto';
   if (prompts.length > 0) {
     const arMatch = prompts[0].match(/--ar\s+([\d]+:[\d]+)/i);
     if (arMatch) {
@@ -151,9 +153,9 @@ export async function runGeneration(page, config) {
         // Quyết định tiền tố tên tệp dựa trên chiến lược đặt tên đã phân tích
         let filePrefix = index;
         if (usePromptNumbers) {
-          const match = prompt.trim().match(/^(\d+)/);
+          const match = prompt.trim().match(/^(\d+(?:\.\d+)*)/);
           if (match) {
-            filePrefix = parseInt(match[1]);
+            filePrefix = match[1];
           }
         }
 

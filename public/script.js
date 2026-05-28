@@ -122,12 +122,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Media Type Toggle Logic ---
     let selectedMediaType = 'image'; // 'image' or 'video'
+    let selectedAspectRatio = '9:16';
     const mediaTypeBtns = document.querySelectorAll('.media-type-btn');
+    const aspectRatioSelector = document.getElementById('aspect-ratio-selector');
+    
     mediaTypeBtns.forEach(btn => {
         btn.addEventListener('click', () => {
             mediaTypeBtns.forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             selectedMediaType = btn.dataset.type;
+            
+            // Always show aspect ratio selector (available for all media types)
+            aspectRatioSelector.style.display = 'flex';
+        });
+    });
+
+    const aspectRatioBtns = document.querySelectorAll('.aspect-ratio-btn');
+    aspectRatioBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            aspectRatioBtns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            selectedAspectRatio = btn.dataset.ratio;
         });
     });
 
@@ -327,6 +342,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Add provider to form data
         formData.append('provider', selectedProvider);
         formData.append('mediaType', selectedMediaType);
+        formData.append('aspectRatio', selectedAspectRatio);
         if (selectedMediaType === 'flow') {
             formData.append('flowMode', 'true');
         }
@@ -609,7 +625,6 @@ document.addEventListener('DOMContentLoaded', () => {
             // Clean up list markers for display
             let prompt = line;
             prompt = prompt.replace(/^[-*+]\s+/, '');
-            prompt = prompt.replace(/^\d+[.:]\s*/, '');
             prompt = prompt.replace(/\*\*(.*?)\*\*/g, '$1');
             prompt = prompt.replace(/\*(.*?)\*/g, '$1');
             prompt = prompt.trim();
