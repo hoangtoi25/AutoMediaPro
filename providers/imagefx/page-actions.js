@@ -8,7 +8,7 @@
  * Ported from: AutoMedia/dom-helpers.js + cdp.js
  */
 
-import { SELECTORS, PLACEHOLDER_TEXTS, GENERATE_BTN_KEYWORDS, ERROR_KEYWORDS, MEDIA_TAB_LABELS, VIDEO_DEFAULTS } from './config.js';
+import { SELECTORS, PLACEHOLDER_TEXTS, GENERATE_BTN_KEYWORDS, ERROR_KEYWORDS, MEDIA_TAB_LABELS, VIDEO_DEFAULTS, COMPONENT_TAB_LABELS, FRAME_TAB_LABELS, START_IMAGE_LABELS, FLOW_DEFAULTS } from './config.js';
 import { TIMING } from '../../config.js';
 import { log } from '../../logger.js';
 
@@ -50,24 +50,22 @@ export async function findInputElement(page) {
 
 // ── Media Mode Selection ──────────────────────────────────────
 
-/**
- * Click the "Image" or "Video" tab button in the settings panel.
- * Uses flexible text matching since Flow buttons may contain icons.
- * @param {import('puppeteer-core').Page} page
- * @param {'image'|'video'} mediaType
- * @returns {Promise<boolean>} true if clicked successfully
- */
 export async function selectMediaMode(page, mediaType) {
   const labels = MEDIA_TAB_LABELS[mediaType] || MEDIA_TAB_LABELS.image;
 
   log.step(`[ImageFX] Chọn mode "${mediaType}"...`);
 
-  const clicked = await page.evaluate((targetLabels) => {
-    const allClickable = document.querySelectorAll(
+  // First, ensure settings panel is open
+  await openSettingsPanel(page);
+
+  // Find the button position (don't click from evaluate)
+  const result = await page.evaluate((targetLabels) => {
+    const dropdown = document.querySelector('.DropdownMenuContent, [class*="DropdownMenuContent"]');
+    const searchRoot = dropdown || document;
+    const allClickable = searchRoot.querySelectorAll(
       'button, [role="tab"], [role="button"], [role="radio"], div[tabindex], label, span[tabindex]'
     );
 
-    // Collect ALL matching candidates
     const candidates = [];
 
     for (const el of allClickable) {
@@ -77,53 +75,145 @@ export async function selectMediaMode(page, mediaType) {
 
       for (const label of targetLabels) {
         if (text.toLowerCase().includes(label.toLowerCase())) {
-          candidates.push({ el, text, len: text.length });
+          const isActive = el.classList.contains('active') ||
+                           el.getAttribute('aria-selected') === 'true' ||
+                           el.getAttribute('data-state') === 'active' ||
+                           el.getAttribute('aria-pressed') === 'true';
+
+          candidates.push({
+            text,
+            len: text.length,
+            x: rect.x,
+            y: rect.y,
+            w: rect.width,
+            h: rect.height,
+            isActive,
+          });
         }
       }
     }
 
     if (candidates.length === 0) return null;
 
-    // Pick the one with SHORTEST text (most specific match, avoids parent containers)
+    // Pick the one with SHORTEST text (most specific match)
     candidates.sort((a, b) => a.len - b.len);
-    const best = candidates[0];
-
-    const isActive = best.el.classList.contains('active') ||
-                     best.el.getAttribute('aria-selected') === 'true' ||
-                     best.el.getAttribute('data-state') === 'active' ||
-                     best.el.getAttribute('aria-pressed') === 'true';
-    if (isActive) return { text: best.text, alreadyActive: true };
-    best.el.click();
-    return { text: best.text, alreadyActive: false };
+    return candidates[0];
   }, labels);
 
-  if (clicked) {
-    if (clicked.alreadyActive) {
-      log.step(`[ImageFX] Mode "${clicked.text}" đã được chọn sẵn`);
-    } else {
-      log.step(`[ImageFX] Đã chọn mode "${clicked.text}"`);
-      await delay(1500);
-    }
+  if (!result) {
+    log.warn(`[ImageFX] Không tìm thấy nút mode "${mediaType}"`);
+    return false;
+  }
+
+  if (result.isActive) {
+    log.step(`[ImageFX] Mode "${result.text}" đã được chọn sẵn`);
     return true;
   }
 
-  log.warn(`[ImageFX] Không tìm thấy nút mode "${mediaType}"`);
+  // Click with page.mouse — Google Flow components need native clicks
+  await page.mouse.click(result.x + result.w / 2, result.y + result.h / 2);
+  log.step(`[ImageFX] Đã chọn mode "${result.text}"`);
+  await delay(1500);
+
+  return true;
+}
+
+/**
+ * Open the settings panel by clicking the combined settings summary button.
+ * e.g. "Video · 8scrop_16_91x" or "🍌 Nano Banana 2crop_squarex4" at the bottom of the page.
+ * Must use page.mouse.click() — el.click() doesn't work on this component.
+ *
+ * @param {import('puppeteer-core').Page} page
+ * @returns {Promise<boolean>} true if panel was opened or already open
+ */
+export async function openSettingsPanel(page) {
+  // Check if settings panel is already open by looking for the DropdownMenuContent container
+  const alreadyOpen = await page.evaluate(() => {
+    const dropdown = document.querySelector('.DropdownMenuContent, [class*="DropdownMenuContent"]');
+    if (dropdown) {
+      const rect = dropdown.getBoundingClientRect();
+      return rect.width > 10 && rect.height > 10;
+    }
+    return false;
+  });
+
+  if (alreadyOpen) {
+    log.step('[ImageFX] Settings panel đã mở sẵn');
+    return true;
+  }
+
+  // Find the combined settings summary button (contains 'crop_' representing the current aspect ratio)
+  const btnBox = await page.evaluate(() => {
+    // Strategy 1: Look for any button whose text contains 'crop_'
+    for (const btn of document.querySelectorAll('button')) {
+      const text = btn.textContent.trim();
+      if (text.toLowerCase().includes('crop_')) {
+        const rect = btn.getBoundingClientRect();
+        if (rect.width > 5 && rect.height > 5) {
+          return { x: rect.x, y: rect.y, w: rect.width, h: rect.height, text };
+        }
+      }
+    }
+    // Fallback: look for button containing '·' representing combined settings
+    for (const btn of document.querySelectorAll('button')) {
+      const text = btn.textContent.trim();
+      if (text.includes('·')) {
+        const rect = btn.getBoundingClientRect();
+        if (rect.width > 5 && rect.height > 5) {
+          return { x: rect.x, y: rect.y, w: rect.width, h: rect.height, text };
+        }
+      }
+    }
+    return null;
+  });
+
+  if (!btnBox) {
+    log.warn('[ImageFX] Không tìm thấy nút settings summary');
+    return false;
+  }
+
+  log.step(`[ImageFX] Click mở Settings Panel: "${btnBox.text}"`);
+  // MUST use page.mouse.click() — Google Flow components don't respond to el.click()
+  await page.mouse.click(btnBox.x + btnBox.w / 2, btnBox.y + btnBox.h / 2);
+  await delay(1500);
+
+  // Verify panel opened
+  const opened = await page.evaluate(() => {
+    const dropdown = document.querySelector('.DropdownMenuContent, [class*="DropdownMenuContent"]');
+    if (dropdown) {
+      const rect = dropdown.getBoundingClientRect();
+      return rect.width > 10 && rect.height > 10;
+    }
+    return false;
+  });
+
+  if (opened) {
+    log.success('[ImageFX] Settings panel đã mở');
+    return true;
+  }
+
+  log.warn('[ImageFX] Settings panel không mở được sau khi click');
   return false;
 }
 
 /**
  * Helper: click a button whose text includes the target string.
- * Works for aspect ratio, duration, and other settings buttons.
+ * Uses page.mouse.click() with bounding box coordinates because Google Flow
+ * components don't respond to synthetic el.click() from evaluate.
+ *
+ * IMPORTANT: Settings panel must be open first (call openSettingsPanel()).
  */
 async function clickSettingButton(page, targetText, settingName) {
   log.step(`[ImageFX] Chọn ${settingName}: ${targetText}...`);
 
+  // Find button position via evaluate, then click via page.mouse
   const result = await page.evaluate((target) => {
-    const allClickable = document.querySelectorAll(
+    const dropdown = document.querySelector('.DropdownMenuContent, [class*="DropdownMenuContent"]');
+    const searchRoot = dropdown || document;
+    const allClickable = searchRoot.querySelectorAll(
       'button, [role="tab"], [role="button"], [role="radio"], div[tabindex], label, span[tabindex]'
     );
 
-    // Collect ALL matching candidates
     const candidates = [];
 
     for (const el of allClickable) {
@@ -131,10 +221,24 @@ async function clickSettingButton(page, targetText, settingName) {
       const rect = el.getBoundingClientRect();
       if (rect.width < 10 || rect.height < 10) continue;
 
-      // Only match SHORT text (< 20 chars) to avoid matching the combined
-      // status bar like "Video · 8scrop_16_91x" which contains all settings
-      if (text.length < 20 && (text === target || text.includes(target))) {
-        candidates.push({ el, text, len: text.length });
+      // Only match SHORT text (< 30 chars) to avoid matching the combined
+      // status bar like "Video · 8scrop_16_91x" which contains all settings.
+      // Needs to be 30+ because icon-prefixed texts like "crop_freeKhung hình" are ~21 chars.
+      if (text.length < 30 && (text === target || text.includes(target))) {
+        const isActive = el.classList.contains('active') ||
+                         el.getAttribute('aria-selected') === 'true' ||
+                         el.getAttribute('aria-pressed') === 'true' ||
+                         el.getAttribute('data-state') === 'active';
+
+        candidates.push({
+          text,
+          len: text.length,
+          x: rect.x,
+          y: rect.y,
+          w: rect.width,
+          h: rect.height,
+          isActive,
+        });
       }
     }
 
@@ -142,29 +246,24 @@ async function clickSettingButton(page, targetText, settingName) {
 
     // Pick SHORTEST text match (most specific element)
     candidates.sort((a, b) => a.len - b.len);
-    const best = candidates[0];
-
-    const isActive = best.el.classList.contains('active') ||
-                     best.el.getAttribute('aria-selected') === 'true' ||
-                     best.el.getAttribute('aria-pressed') === 'true' ||
-                     best.el.getAttribute('data-state') === 'active';
-    if (isActive) return { text: best.text, alreadyActive: true };
-    best.el.click();
-    return { text: best.text, alreadyActive: false };
+    return candidates[0];
   }, targetText);
 
-  if (result) {
-    if (result.alreadyActive) {
-      log.step(`[ImageFX] ${settingName} "${result.text}" đã được chọn sẵn`);
-    } else {
-      log.step(`[ImageFX] Đã chọn ${settingName} "${result.text}"`);
-      await delay(500);
-    }
+  if (!result) {
+    log.warn(`[ImageFX] Không tìm thấy nút ${settingName} "${targetText}"`);
+    return false;
+  }
+
+  if (result.isActive) {
+    log.step(`[ImageFX] ${settingName} "${result.text}" đã được chọn sẵn`);
     return true;
   }
 
-  log.warn(`[ImageFX] Không tìm thấy nút ${settingName} "${targetText}"`);
-  return false;
+  // Click via page.mouse at the center of the button
+  await page.mouse.click(result.x + result.w / 2, result.y + result.h / 2);
+  log.step(`[ImageFX] Đã chọn ${settingName} "${result.text}"`);
+  await delay(500);
+  return true;
 }
 
 /**
@@ -179,6 +278,12 @@ async function clickSettingButton(page, targetText, settingName) {
 export async function configureVideoSettings(page, options = {}) {
   const aspectRatio = options.aspectRatio || VIDEO_DEFAULTS.ASPECT_RATIO;
   const duration = options.duration || VIDEO_DEFAULTS.DURATION;
+
+  // Ensure settings panel is open first
+  await openSettingsPanel(page);
+
+  // Open "Khung hình" tab first to ensure aspect ratio and duration buttons are visible
+  await clickFrameTab(page);
 
   // ── Select Aspect Ratio ─────────────────────────────────
   if (aspectRatio && aspectRatio !== 'auto') {
@@ -205,9 +310,16 @@ export async function configureVideoSettings(page, options = {}) {
 export async function configureImageSettings(page, options = {}) {
   const aspectRatio = options.aspectRatio;
 
+  // Ensure settings panel is open first
+  await openSettingsPanel(page);
+
+  // Open "Khung hình" tab first to ensure aspect ratio buttons are visible
+  await clickFrameTab(page);
+
   if (aspectRatio && aspectRatio !== 'auto') {
-    await clickSettingButton(page, aspectRatio, 'tỷ lệ khung hình');
+    return await clickSettingButton(page, aspectRatio, 'tỷ lệ khung hình');
   }
+  return true;
 }
 
 /**
@@ -332,6 +444,95 @@ export async function findGenerateButton(page) {
 }
 
 /**
+ * Close the settings panel if it is currently open.
+ * Can close by pressing the 'Escape' key or clicking the summary button.
+ *
+ * @param {import('puppeteer-core').Page} page
+ * @returns {Promise<boolean>}
+ */
+export async function closeSettingsPanel(page) {
+  const isOpen = await page.evaluate(() => {
+    const dropdown = document.querySelector('.DropdownMenuContent, [class*="DropdownMenuContent"]');
+    if (dropdown) {
+      const rect = dropdown.getBoundingClientRect();
+      return rect.width > 10 && rect.height > 10;
+    }
+    return false;
+  });
+
+  if (!isOpen) return true;
+
+  log.step('[ImageFX] Đóng settings panel...');
+
+  // Strategy 1: Press Escape
+  await page.keyboard.press('Escape');
+  await delay(500);
+
+  // Verify closed
+  const stillOpen = await page.evaluate(() => {
+    const dropdown = document.querySelector('.DropdownMenuContent, [class*="DropdownMenuContent"]');
+    if (dropdown) {
+      const rect = dropdown.getBoundingClientRect();
+      return rect.width > 10 && rect.height > 10;
+    }
+    return false;
+  });
+
+  if (!stillOpen) {
+    log.success('[ImageFX] Settings panel đã đóng (Escape)');
+    return true;
+  }
+
+  // Strategy 2: Click settings summary button again to toggle closed
+  const btnBox = await page.evaluate(() => {
+    for (const btn of document.querySelectorAll('button')) {
+      const text = btn.textContent.trim();
+      if (text.toLowerCase().includes('crop_')) {
+        const rect = btn.getBoundingClientRect();
+        return { x: rect.x, y: rect.y, w: rect.width, h: rect.height };
+      }
+    }
+    return null;
+  });
+
+  if (btnBox) {
+    await page.mouse.click(btnBox.x + btnBox.w / 2, btnBox.y + btnBox.h / 2);
+    await delay(1000);
+  }
+
+  return true;
+}
+
+/**
+ * Close the settings panel and focus the prompt input element.
+ * Must be called AFTER all settings configuration and BEFORE typing a prompt.
+ * This ensures the settings panel doesn't cover the input field.
+ *
+ * @param {import('puppeteer-core').Page} page
+ * @returns {Promise<boolean>} true if input was focused successfully
+ */
+export async function closeSettingsAndFocusInput(page) {
+  // Close settings panel
+  await closeSettingsPanel(page);
+  await delay(300);
+
+  // Find and click the prompt input to ensure focus
+  const inputEl = await findInputElement(page);
+  if (inputEl) {
+    // Scroll input into view first
+    await inputEl.evaluate(el => el.scrollIntoView({ behavior: 'instant', block: 'center' }));
+    await delay(200);
+    await inputEl.click();
+    await delay(300);
+    log.step('[ImageFX] ✓ Đã focus vào ô nhập prompt');
+    return true;
+  }
+
+  log.warn('[ImageFX] Không tìm thấy ô nhập prompt sau khi đóng settings');
+  return false;
+}
+
+/**
  * Clear the input field and type a new prompt.
  * Uses Puppeteer's keyboard API which dispatches trusted events.
  * @param {import('puppeteer-core').Page} page
@@ -339,6 +540,9 @@ export async function findGenerateButton(page) {
  * @param {string} prompt
  */
 export async function typePrompt(page, inputEl, prompt) {
+  // Ensure settings panel is closed first to avoid covering the input field!
+  await closeSettingsPanel(page);
+
   // Click to focus
   await inputEl.click();
   await delay(TIMING.INPUT_SETTLE);
@@ -585,6 +789,540 @@ export async function markAllUnclaimedImages(page) {
       }
     });
   });
+}
+
+// ── Flow Pipeline: Component Tab & Start Image ───────────────
+
+/**
+ * Click the "Thành phần" (Components) tab inside Video mode settings.
+ * This tab contains the start image upload area for img2video.
+ * @param {import('puppeteer-core').Page} page
+ * @returns {Promise<boolean>} true if clicked successfully
+ */
+export async function clickComponentTab(page) {
+  log.step('[ImageFX] Mở tab "Thành phần" (Components)...');
+
+  // First, ensure settings panel is open
+  await openSettingsPanel(page);
+
+  const result = await page.evaluate((labels) => {
+    const dropdown = document.querySelector('.DropdownMenuContent, [class*="DropdownMenuContent"]');
+    const searchRoot = dropdown || document;
+    const allClickable = searchRoot.querySelectorAll(
+      'button, [role="tab"], [role="button"], div[tabindex], label, span[tabindex]'
+    );
+
+    const candidates = [];
+    for (const el of allClickable) {
+      const text = el.textContent.trim();
+      const rect = el.getBoundingClientRect();
+      if (rect.width < 10 || rect.height < 10) continue;
+
+      for (const label of labels) {
+        if (text.length < 30 && text.toLowerCase().includes(label.toLowerCase())) {
+          const isActive = el.classList.contains('active') ||
+                           el.getAttribute('aria-selected') === 'true' ||
+                           el.getAttribute('data-state') === 'active';
+
+          candidates.push({
+            text,
+            len: text.length,
+            x: rect.x,
+            y: rect.y,
+            w: rect.width,
+            h: rect.height,
+            isActive
+          });
+        }
+      }
+    }
+
+    if (candidates.length === 0) return null;
+    candidates.sort((a, b) => a.len - b.len);
+    return candidates[0];
+  }, COMPONENT_TAB_LABELS);
+
+  if (!result) {
+    log.warn('[ImageFX] Không tìm thấy tab "Thành phần"');
+    return false;
+  }
+
+  if (result.isActive) {
+    log.step(`[ImageFX] Tab "${result.text}" đã được chọn sẵn`);
+    return true;
+  }
+
+  // Click via page.mouse
+  await page.mouse.click(result.x + result.w / 2, result.y + result.h / 2);
+  log.step(`[ImageFX] Đã chọn tab "${result.text}"`);
+  await delay(1000);
+  return true;
+}
+
+/**
+ * Click the "Khung hình" (Frame/Aspect ratio) tab inside settings.
+ * This tab contains the aspect ratio and duration buttons.
+ * @param {import('puppeteer-core').Page} page
+ * @returns {Promise<boolean>} true if clicked successfully
+ */
+export async function clickFrameTab(page) {
+  log.step('[ImageFX] Mở tab "Khung hình" (Frame)...');
+
+  // First, ensure settings panel is open
+  await openSettingsPanel(page);
+
+  const result = await page.evaluate((labels) => {
+    const dropdown = document.querySelector('.DropdownMenuContent, [class*="DropdownMenuContent"]');
+    const searchRoot = dropdown || document;
+    const allClickable = searchRoot.querySelectorAll(
+      'button, [role="tab"], [role="button"], div[tabindex], label, span[tabindex]'
+    );
+
+    const candidates = [];
+    for (const el of allClickable) {
+      const text = el.textContent.trim();
+      const rect = el.getBoundingClientRect();
+      if (rect.width < 10 || rect.height < 10) continue;
+
+      for (const label of labels) {
+        if (text.length < 30 && text.toLowerCase().includes(label.toLowerCase())) {
+          const isActive = el.classList.contains('active') ||
+                           el.getAttribute('aria-selected') === 'true' ||
+                           el.getAttribute('data-state') === 'active';
+
+          candidates.push({
+            text,
+            len: text.length,
+            x: rect.x,
+            y: rect.y,
+            w: rect.width,
+            h: rect.height,
+            isActive
+          });
+        }
+      }
+    }
+
+    if (candidates.length === 0) return null;
+    candidates.sort((a, b) => a.len - b.len);
+    return candidates[0];
+  }, FRAME_TAB_LABELS);
+
+  if (!result) {
+    log.warn('[ImageFX] Không tìm thấy tab "Khung hình"');
+    return false;
+  }
+
+  if (result.isActive) {
+    log.step(`[ImageFX] Tab "${result.text}" đã được chọn sẵn`);
+    return true;
+  }
+
+  // Click via page.mouse
+  await page.mouse.click(result.x + result.w / 2, result.y + result.h / 2);
+  log.step(`[ImageFX] Đã chọn tab "${result.text}"`);
+  await delay(1000);
+  return true;
+}
+
+/**
+ * Select the most recently generated image as the "Bắt đầu" (Start) frame
+ * for img2video generation in Google Flow.
+ *
+ * Flow:
+ * 1. Ensure settings panel is CLOSED
+ * 2. Click the "Bắt đầu" (Start) frame selector container in the prompt bar
+ * 3. In the media picker dialog that opens:
+ *    a. Find the target image by index (e.g. "1.jpg") or select the first image
+ *    b. Click it to select it
+ *    c. Click "Thêm vào câu lệnh" (Add to prompt) to confirm
+ * 4. Verify the start frame is now filled
+ *
+ * NOTE: The image must ALREADY exist on the project canvas (generated in Phase 1).
+ * This function does NOT upload a file — it selects an existing canvas image.
+ *
+ * @param {import('puppeteer-core').Page} page
+ * @param {string} imagePath - Path to the generated image (used to extract index for matching)
+ * @returns {Promise<boolean>} true if start frame was selected successfully
+ */
+export async function uploadStartImage(page, imagePath) {
+  // Extract the image filename (e.g. "1.jpg") from the path for matching in the picker
+  const imageFilename = imagePath.split(/[/\\]/).pop();
+  log.step(`[ImageFX] Chọn ảnh bắt đầu: ${imageFilename}`);
+
+  // Step 1: Close settings panel if open
+  await closeSettingsPanel(page);
+  await delay(500);
+
+  // Step 2: Find and click the "Bắt đầu" (Start) frame selector
+  const batDau = await page.evaluate(() => {
+    for (const el of document.querySelectorAll('div')) {
+      // Check own text content only (not children)
+      const ownText = Array.from(el.childNodes)
+        .filter(n => n.nodeType === Node.TEXT_NODE)
+        .map(n => n.textContent.trim())
+        .join('');
+      const r = el.getBoundingClientRect();
+      if (ownText === 'Bắt đầu' && r.width >= 40 && r.width <= 70 && r.height >= 40 && r.height <= 70) {
+        return { x: r.x, y: r.y, w: r.width, h: r.height };
+      }
+    }
+    return null;
+  });
+
+  if (!batDau) {
+    log.warn('[ImageFX] Không tìm thấy container "Bắt đầu" — có thể chưa ở Video mode');
+    return false;
+  }
+
+  log.step(`[ImageFX] Click "Bắt đầu" tại ${Math.round(batDau.x)},${Math.round(batDau.y)}`);
+  await page.mouse.click(batDau.x + batDau.w / 2, batDau.y + batDau.h / 2);
+  await delay(2000);
+
+  // Step 3: The media picker dialog should now be open
+  const dialogExists = await page.evaluate(() => !!document.querySelector('[role="dialog"]'));
+  if (!dialogExists) {
+    log.warn('[ImageFX] Media picker dialog không mở sau khi click "Bắt đầu"');
+    return false;
+  }
+  log.step('[ImageFX] Media picker dialog đã mở');
+
+  // Step 3a: Find and click the target image in the media list
+  // The images appear as rows with alt text matching the filename (e.g. "1.jpg")
+  // or generated name (e.g. "Man on cliff turbulent sea")
+  const imageSelected = await page.evaluate((targetFilename) => {
+    const dialog = document.querySelector('[role="dialog"]');
+    if (!dialog) return { success: false, reason: 'no-dialog' };
+
+    // Collect all selectable image rows in the dialog
+    const rows = [];
+    for (const el of dialog.querySelectorAll('div')) {
+      const img = el.querySelector('img');
+      if (!img) continue;
+      const r = el.getBoundingClientRect();
+      // Media rows are ~48px tall, ~246px wide
+      if (r.height < 30 || r.height > 80 || r.width < 100 || r.width > 400) continue;
+
+      const alt = img.alt || '';
+      const isSelected = el.classList.contains('selected') ||
+                         el.getAttribute('aria-selected') === 'true' ||
+                         // Google Flow uses different classes for selected vs unselected:
+                         // selected: hkoShs, unselected: bHRxNd
+                         (el.className && el.className.includes('hkoShs'));
+
+      rows.push({
+        alt,
+        x: r.x, y: r.y, w: r.width, h: r.height,
+        isSelected,
+        element: el,
+      });
+    }
+
+    if (rows.length === 0) return { success: false, reason: 'no-rows' };
+
+    // Strategy 1: Find exact filename match (e.g. "1.jpg")
+    let target = rows.find(r => r.alt === targetFilename);
+
+    // Strategy 2: Find by filename without extension
+    if (!target) {
+      const nameNoExt = targetFilename.replace(/\.\w+$/, '');
+      target = rows.find(r => r.alt.startsWith(nameNoExt));
+    }
+
+    // Strategy 3: Select the FIRST non-video image (most recent)
+    if (!target) {
+      target = rows[0];
+    }
+
+    if (!target) return { success: false, reason: 'no-target' };
+
+    return {
+      success: true,
+      alt: target.alt,
+      alreadySelected: target.isSelected,
+      x: target.x, y: target.y, w: target.w, h: target.h,
+    };
+  }, imageFilename);
+
+  if (!imageSelected.success) {
+    log.warn(`[ImageFX] Không tìm thấy ảnh trong media picker: ${imageSelected.reason}`);
+    // Close dialog
+    await page.keyboard.press('Escape');
+    await delay(500);
+    return false;
+  }
+
+  // Click the target image row if not already selected
+  if (!imageSelected.alreadySelected) {
+    log.step(`[ImageFX] Chọn ảnh "${imageSelected.alt}" trong media picker`);
+    await page.mouse.click(
+      imageSelected.x + imageSelected.w / 2,
+      imageSelected.y + imageSelected.h / 2
+    );
+    await delay(1000);
+  } else {
+    log.step(`[ImageFX] Ảnh "${imageSelected.alt}" đã được chọn sẵn`);
+  }
+
+  // Step 3b: Click "Thêm vào câu lệnh" (Add to prompt)
+  const addBtn = await page.evaluate(() => {
+    const dialog = document.querySelector('[role="dialog"]');
+    if (!dialog) return null;
+    for (const btn of dialog.querySelectorAll('button')) {
+      const text = btn.textContent.trim();
+      if (text.includes('Thêm vào câu lệnh') || text.includes('Add to prompt') || text.includes('Chọn')) {
+        const r = btn.getBoundingClientRect();
+        return { x: r.x, y: r.y, w: r.width, h: r.height, text, disabled: btn.disabled };
+      }
+    }
+    return null;
+  });
+
+  if (!addBtn) {
+    log.warn('[ImageFX] Không tìm thấy nút "Thêm vào câu lệnh"');
+    await page.keyboard.press('Escape');
+    await delay(500);
+    return false;
+  }
+
+  if (addBtn.disabled) {
+    log.warn('[ImageFX] Nút "Thêm vào câu lệnh" bị disable — có thể chưa chọn ảnh');
+    await page.keyboard.press('Escape');
+    await delay(500);
+    return false;
+  }
+
+  log.step(`[ImageFX] Click "${addBtn.text}"`);
+  await page.mouse.click(addBtn.x + addBtn.w / 2, addBtn.y + addBtn.h / 2);
+  await delay(1500);
+
+  // Step 4: Verify the start frame is now filled (the "Bắt đầu" container should now
+  // contain an image or have a different visual state)
+  const startFrameFilled = await page.evaluate(() => {
+    for (const el of document.querySelectorAll('div')) {
+      const ownText = Array.from(el.childNodes)
+        .filter(n => n.nodeType === Node.TEXT_NODE)
+        .map(n => n.textContent.trim())
+        .join('');
+      const r = el.getBoundingClientRect();
+      if (ownText === 'Bắt đầu' && r.width >= 40 && r.width <= 70) {
+        // Check if there's an image inside now
+        const img = el.querySelector('img');
+        return !!img;
+      }
+    }
+    // If we can't find the text "Bắt đầu" anymore, the frame might be filled
+    // (the text is replaced by a thumbnail)
+    return true;
+  });
+
+  if (startFrameFilled) {
+    log.success(`[ImageFX] ✓ Ảnh bắt đầu "${imageSelected.alt}" đã được chọn thành công`);
+  } else {
+    log.warn('[ImageFX] Chưa xác nhận được ảnh bắt đầu đã được chọn');
+  }
+
+  return true;
+}
+
+/**
+ * Clear/remove the start image after generating a video.
+ * Looks for a close/remove button on the start image preview.
+ * @param {import('puppeteer-core').Page} page
+ * @returns {Promise<boolean>}
+ */
+export async function clearStartImage(page) {
+  log.step('[ImageFX] Xóa ảnh bắt đầu...');
+
+  const cleared = await page.evaluate((labels) => {
+    // Strategy 1: Find close/remove button near start image area
+    const closeKeywords = ['×', 'close', 'remove', 'xóa', 'xoá', 'clear', 'gỡ', 'bỏ'];
+
+    // First, find the start image area
+    let startImageArea = null;
+    for (const el of document.querySelectorAll('*')) {
+      const text = el.textContent.trim();
+      for (const label of labels) {
+        if (text.toLowerCase().includes(label.toLowerCase()) && text.length < 50) {
+          startImageArea = el;
+          break;
+        }
+      }
+      if (startImageArea) break;
+    }
+
+    if (!startImageArea) return null;
+
+    // Look for close buttons within or near the start image area
+    const nearbyBtns = startImageArea.querySelectorAll('button, [role="button"], svg');
+    for (const btn of nearbyBtns) {
+      const text = btn.textContent.trim().toLowerCase();
+      const ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase();
+      for (const kw of closeKeywords) {
+        if (text.includes(kw) || ariaLabel.includes(kw)) {
+          btn.click();
+          return { text: btn.textContent.trim(), strategy: 'close-btn' };
+        }
+      }
+      // Also try icon-only buttons (SVG with no text)
+      if (text.length === 0 && btn.querySelector('svg, i')) {
+        const rect = btn.getBoundingClientRect();
+        if (rect.width > 10 && rect.width < 40 && rect.height > 10 && rect.height < 40) {
+          btn.click();
+          return { text: '(icon)', strategy: 'icon-btn' };
+        }
+      }
+    }
+
+    // Strategy 2: Find any small close button near a preview thumbnail
+    const allBtns = document.querySelectorAll('button');
+    for (const btn of allBtns) {
+      const rect = btn.getBoundingClientRect();
+      if (rect.width < 40 && rect.height < 40 && rect.width > 10) {
+        const text = btn.textContent.trim().toLowerCase();
+        const ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase();
+        for (const kw of closeKeywords) {
+          if (text === kw || ariaLabel.includes(kw)) {
+            btn.click();
+            return { text: btn.textContent.trim() || ariaLabel, strategy: 'global-close' };
+          }
+        }
+      }
+    }
+
+    return null;
+  }, START_IMAGE_LABELS);
+
+  if (cleared) {
+    log.step(`[ImageFX] Đã xóa ảnh bắt đầu (${cleared.strategy}: "${cleared.text}")`);
+    await delay(1000);
+    return true;
+  }
+
+  log.warn('[ImageFX] Không tìm thấy nút xóa ảnh bắt đầu — có thể cần xóa thủ công');
+  return false;
+}
+
+/**
+ * Select scale/multiplier option in image mode (1x, 2x, 3x, 4x).
+ * @param {import('puppeteer-core').Page} page
+ * @param {string} scale - '1x', '2x', '3x', or '4x'
+ * @returns {Promise<boolean>}
+ */
+export async function selectScaleOption(page, scale) {
+  return clickSettingButton(page, scale, 'tỷ lệ phóng đại');
+}
+
+/**
+ * Select a specific AI model from the model dropdown/selector.
+ * Clicks the current model button to open dropdown, then selects target model.
+ *
+ * @param {import('puppeteer-core').Page} page
+ * @param {string} modelSubstring - Substring to match (e.g. 'Nano Banana Pro', 'Veo 3.1')
+ * @returns {Promise<boolean>}
+ */
+export async function selectModel(page, modelSubstring) {
+  if (!modelSubstring) return true;
+
+  log.step(`[ImageFX] Chọn model: "${modelSubstring}"...`);
+
+  // Ensure settings panel is open
+  await openSettingsPanel(page);
+
+  // Step 1: Check if the current model already matches
+  const currentModel = await page.evaluate((keywords) => {
+    const dropdown = document.querySelector('.DropdownMenuContent, [class*="DropdownMenuContent"]');
+    const searchRoot = dropdown || document;
+    for (const btn of searchRoot.querySelectorAll('button')) {
+      const text = btn.textContent.trim();
+      if (keywords.some(kw => text.includes(kw))) {
+        return text;
+      }
+    }
+    return null;
+  }, GENERATE_BTN_KEYWORDS);
+
+  if (currentModel && currentModel.toLowerCase().includes(modelSubstring.toLowerCase())) {
+    log.step(`[ImageFX] Model "${currentModel}" đã được chọn sẵn`);
+    return true;
+  }
+
+  // Step 2: Click the model selector button to open dropdown (using native mouse click)
+  const modelBtnBox = await page.evaluate((keywords) => {
+    const dropdown = document.querySelector('.DropdownMenuContent, [class*="DropdownMenuContent"]');
+    const searchRoot = dropdown || document;
+    const allBtns = Array.from(searchRoot.querySelectorAll('button'));
+
+    const modelBtns = allBtns
+      .map(b => {
+        const rect = b.getBoundingClientRect();
+        return { b, text: b.textContent.trim(), x: rect.x, y: rect.y, w: rect.width, h: rect.height };
+      })
+      .filter(({ text }) => keywords.some(kw => text.includes(kw)));
+
+    if (modelBtns.length === 0) return null;
+    modelBtns.sort((a, b) => a.text.length - b.text.length);
+    return { x: modelBtns[0].x, y: modelBtns[0].y, w: modelBtns[0].w, h: modelBtns[0].h, text: modelBtns[0].text };
+  }, GENERATE_BTN_KEYWORDS);
+
+  if (!modelBtnBox) {
+    log.warn('[ImageFX] Không tìm thấy nút chọn model');
+    return false;
+  }
+
+  log.step(`[ImageFX] Đã click model selector: "${modelBtnBox.text}"`);
+  await page.mouse.click(modelBtnBox.x + modelBtnBox.w / 2, modelBtnBox.y + modelBtnBox.h / 2);
+  await delay(1500);
+
+  // Step 3: Find and click the target model in the dropdown/list (using native mouse click)
+  const targetBtnBox = await page.evaluate((target) => {
+    // Look in dropdowns, menus, lists, dialogs
+    const containers = document.querySelectorAll(
+      '[role="listbox"], [role="menu"], [role="dialog"], [class*="dropdown"], [class*="popup"], [class*="menu"], [class*="modal"], ul, ol'
+    );
+
+    // Search in containers first
+    for (const container of containers) {
+      const rect = container.getBoundingClientRect();
+      if (rect.width < 10 || rect.height < 10) continue;
+
+      const items = container.querySelectorAll(
+        '[role="option"], [role="menuitem"], li, button, div[tabindex], label'
+      );
+      for (const item of items) {
+        const text = item.textContent.trim();
+        if (text.toLowerCase().includes(target.toLowerCase())) {
+          const itemRect = item.getBoundingClientRect();
+          return { x: itemRect.x, y: itemRect.y, w: itemRect.width, h: itemRect.height, text, source: 'container' };
+        }
+      }
+    }
+
+    // Fallback: search all visible clickable elements
+    for (const el of document.querySelectorAll('button, [role="option"], [role="menuitem"], li, div[tabindex], label')) {
+      const text = el.textContent.trim();
+      const rect = el.getBoundingClientRect();
+      if (rect.width < 10 || rect.height < 10) continue;
+      if (text.toLowerCase().includes(target.toLowerCase()) && text.length < 60) {
+        return { x: rect.x, y: rect.y, w: rect.width, h: rect.height, text, source: 'global' };
+      }
+    }
+
+    return null;
+  }, modelSubstring);
+
+  if (targetBtnBox) {
+    log.step(`[ImageFX] Đã chọn model "${targetBtnBox.text}" (${targetBtnBox.source})`);
+    await page.mouse.click(targetBtnBox.x + targetBtnBox.w / 2, targetBtnBox.y + targetBtnBox.h / 2);
+    await delay(1000);
+    return true;
+  }
+
+  // If dropdown didn't appear, click outside to close any open menu
+  log.warn(`[ImageFX] Không tìm thấy model "${modelSubstring}" trong dropdown`);
+  await page.keyboard.press('Escape');
+  await delay(500);
+  return false;
 }
 
 // ── Utility ───────────────────────────────────────────────────

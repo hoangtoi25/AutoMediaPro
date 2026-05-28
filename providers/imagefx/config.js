@@ -60,3 +60,23 @@ export const ERROR_KEYWORDS = [
   'yêu cầu tạo quá nhanh',
   'too many requests',
 ];
+
+// ── Flow Pipeline Settings ──────────────────────────────────
+// Defaults for the 2-phase flow: Image → Video (img2video)
+export const FLOW_DEFAULTS = {
+  IMAGE_ASPECT_RATIO: '9:16',
+  IMAGE_SCALE: '1x',       // Multiplier button on image settings
+  IMAGE_MODEL: 'Nano Banana Pro', // Substring match for image model selector
+  VIDEO_ASPECT_RATIO: '9:16',
+  VIDEO_DURATION: '8s',
+  VIDEO_MODEL: 'Veo 3.1 - Lite',  // Substring match for "Veo 3.1 - Lite [Lower Priority]"
+};
+
+// Labels for "Thành phần" (Components) tab in Video mode settings
+export const COMPONENT_TAB_LABELS = ['Thành phần', 'Components', 'Composition'];
+
+// Labels for "Khung hình" (Frame/Aspect ratio) tab in settings
+export const FRAME_TAB_LABELS = ['Khung hình', 'Aspect Ratio', 'Frame', 'Aspect'];
+
+// Labels for "Ảnh bắt đầu" (Start image) upload area inside Components tab
+export const START_IMAGE_LABELS = ['Ảnh bắt đầu', 'Start image', 'Starting image', 'Reference image'];

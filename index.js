@@ -20,6 +20,7 @@ import { existsSync } from 'fs';
 import { resolve } from 'path';
 import { getBrowser } from './browser.js';
 import { runGeneration } from './generator.js';
+import { runFlowPipeline } from './flow-pipeline.js';
 import { initProviders, getProvider, listProviders } from './providers/provider-interface.js';
 import { log } from './logger.js';
 
@@ -35,6 +36,7 @@ function parseArgs() {
     loginMode: false,
     provider: 'imagefx',
     mediaType: 'image',
+    flowMode: false,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -59,6 +61,9 @@ function parseArgs() {
         break;
       case '--media-type':
         opts.mediaType = args[++i] || 'image';
+        break;
+      case '--flow':
+        opts.flowMode = true;
         break;
       case '--login':
         opts.loginMode = true;
@@ -221,13 +226,101 @@ function stripMarkdownFormatting(text) {
     .replace(/<[^>]+>/g, '');
 }
 
+// ── Load Flow Prompts (Image + Video pairs) ──────────────────
+
+/**
+ * Parse a prompt file with two sections:
+ *   BỘ 1: IMAGE PROMPTS (numbered)
+ *   BỘ 2: VIDEO MOTION PROMPTS (numbered)
+ *
+ * Pairs them by index: image #1 + video #1, image #2 + video #2, etc.
+ *
+ * @param {string} filePath
+ * @returns {Promise<Array<{index: number, imagePrompt: string, videoPrompt: string}>>}
+ */
+async function loadFlowPrompts(filePath) {
+  const absPath = resolve(filePath);
+  if (!existsSync(absPath)) {
+    throw new Error(`File không tồn tại: ${absPath}`);
+  }
+
+  const content = await readFile(absPath, 'utf-8');
+  const lines = content.split(/\r?\n/);
+
+  const imagePrompts = new Map(); // index → prompt
+  const videoPrompts = new Map(); // index → prompt
+
+  let currentSection = null; // 'image' | 'video' | null
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    // Detect section headers
+    const lower = line.toLowerCase();
+    if (lower.includes('image prompt') || lower.includes('bộ 1')) {
+      currentSection = 'image';
+      continue;
+    }
+    if (lower.includes('video') && (lower.includes('motion') || lower.includes('prompt') || lower.includes('bộ 2'))) {
+      currentSection = 'video';
+      continue;
+    }
+
+    // Skip decorative lines (═══, ───, etc.)
+    if (/^[═─━─\-=]{3,}$/.test(line)) continue;
+
+    // Skip non-prompt lines
+    if (!currentSection) continue;
+
+    // Parse numbered prompts: "1. prompt text" or "1: prompt text"
+    const match = line.match(/^(\d+)[.:\-)]\s+(.+)/);
+    if (match) {
+      const idx = parseInt(match[1]);
+      const promptText = match[2].trim();
+
+      if (currentSection === 'image') {
+        imagePrompts.set(idx, promptText);
+      } else if (currentSection === 'video') {
+        videoPrompts.set(idx, promptText);
+      }
+    }
+  }
+
+  // Pair them by index
+  const pairs = [];
+  for (const [idx, imagePrompt] of imagePrompts) {
+    const videoPrompt = videoPrompts.get(idx);
+    if (!videoPrompt) {
+      log.warn(`⚠️ Ảnh #${idx} không có video prompt tương ứng — bỏ qua`);
+      continue;
+    }
+    pairs.push({ index: idx, imagePrompt, videoPrompt });
+  }
+
+  // Sort by index
+  pairs.sort((a, b) => a.index - b.index);
+
+  if (pairs.length === 0) {
+    throw new Error('Không tìm thấy cặp prompt (image + video) nào trong file!');
+  }
+
+  log.info(`📦 Đã tải ${pairs.length} cặp prompt (Image + Video)`);
+  for (const p of pairs) {
+    log.step(`  #${p.index}: 🎨 ${p.imagePrompt.substring(0, 50)}... | 🎬 ${p.videoPrompt.substring(0, 50)}...`);
+  }
+
+  return pairs;
+}
+
 // ── Main ──────────────────────────────────────────────────────
 
 async function main() {
   console.log(`
 ╔══════════════════════════════════════════╗
-║          🎨 AutoMediaPro v2.0           ║
-║   Multi-Provider Image Generation       ║
+║          🎨 AutoMediaPro v2.1           ║
+║   Multi-Provider Media Generation       ║
+║   + Flow Pipeline (Image → Video)       ║
 ╚══════════════════════════════════════════╝
 `);
 
@@ -283,8 +376,13 @@ Các option:
   --folder, -f     Tên thư mục download (default: AutoMedia)
   --retries, -r    Số lần retry tối đa (default: 2)
   --provider       Chọn engine tạo ảnh (default: imagefx)
+  --flow           Chế độ Flow Pipeline: Image → Video (img2video)
   --new-chrome     Bắt buộc mở Chrome mới
   --login          Mở Chrome để đăng nhập (chạy 1 lần đầu)
+
+Chế độ Flow:
+  node index.js --flow -p ./prompts/image_prompt.md -f "MyProject"
+  (File prompt cần có BỘ 1: IMAGE PROMPTS và BỘ 2: VIDEO MOTION PROMPTS)
 
 Bước đầu tiên (chỉ cần 1 lần cho mỗi provider):
   node index.js --login --provider imagefx
@@ -293,11 +391,20 @@ Bước đầu tiên (chỉ cần 1 lần cho mỗi provider):
     process.exit(0);
   }
 
-  // Load prompts
+  // Load prompts (flow mode or normal mode)
   log.info(`Đang đọc prompts từ: ${opts.promptsFile}`);
-  const prompts = await loadPrompts(opts.promptsFile);
-  log.info(`Đã tải ${prompts.length} prompts`);
-  console.log(`[SYSTEM] PROMPTS_LIST:${JSON.stringify(prompts)}`);
+
+  let prompts = null;
+  let flowPairs = null;
+
+  if (opts.flowMode) {
+    flowPairs = await loadFlowPrompts(opts.promptsFile);
+    console.log(`[SYSTEM] FLOW_PAIRS:${JSON.stringify(flowPairs)}`);
+  } else {
+    prompts = await loadPrompts(opts.promptsFile);
+    log.info(`Đã tải ${prompts.length} prompts`);
+    console.log(`[SYSTEM] PROMPTS_LIST:${JSON.stringify(prompts)}`);
+  }
 
   // Connect to Chrome
   const { browser, isNew } = await getBrowser({ forceNew: opts.forceNewChrome });
@@ -360,14 +467,28 @@ Bước đầu tiên (chỉ cần 1 lần cho mỗi provider):
 
   // Run the pipeline
   try {
-    const result = await runGeneration(page, {
-      prompts,
-      downloadFolder: opts.downloadFolder,
-      providerName: opts.provider,
-      maxRetries: opts.maxRetries,
-      mediaType: opts.mediaType,
-      signal: ac.signal,
-    });
+    let result;
+
+    if (opts.flowMode && flowPairs) {
+      // ── Flow Pipeline: Image → Video ──────────────────
+      result = await runFlowPipeline(page, {
+        pairs: flowPairs,
+        downloadFolder: opts.downloadFolder,
+        providerName: opts.provider,
+        maxRetries: opts.maxRetries,
+        signal: ac.signal,
+      });
+    } else {
+      // ── Normal Pipeline: single media type ────────────
+      result = await runGeneration(page, {
+        prompts,
+        downloadFolder: opts.downloadFolder,
+        providerName: opts.provider,
+        maxRetries: opts.maxRetries,
+        mediaType: opts.mediaType,
+        signal: ac.signal,
+      });
+    }
 
     // Print summary
     const failed = result.results.filter(r => r.status !== 'success');

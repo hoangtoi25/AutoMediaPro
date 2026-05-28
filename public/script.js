@@ -327,9 +327,13 @@ document.addEventListener('DOMContentLoaded', () => {
         // Add provider to form data
         formData.append('provider', selectedProvider);
         formData.append('mediaType', selectedMediaType);
+        if (selectedMediaType === 'flow') {
+            formData.append('flowMode', 'true');
+        }
 
         terminalOutput.innerHTML = '';
-        addLogLine(`Khởi động tiến trình tạo ${selectedMediaType === 'video' ? 'video' : 'ảnh'} (Folder: ${folderName})...`, 'info');
+        const modeLabel = selectedMediaType === 'flow' ? 'Flow (Image → Video)' : selectedMediaType === 'video' ? 'video' : 'ảnh';
+        addLogLine(`Khởi động tiến trình tạo ${modeLabel} (Folder: ${folderName})...`, 'info');
         setSystemStatus(true);
         
         btnStart.disabled = true;
@@ -407,6 +411,14 @@ document.addEventListener('DOMContentLoaded', () => {
                                     return;
                                 }
 
+                                if (cleanLine.startsWith('[SYSTEM] FLOW_PAIRS:')) {
+                                    try {
+                                        const pairs = JSON.parse(cleanLine.substring(20));
+                                        buildFlowQueueUI(pairs);
+                                    } catch (err) { console.error('Parse flow pairs error:', err); }
+                                    return;
+                                }
+
                                 updatePromptStatusFromLog(cleanLine);
                                 
                                 addLogLine(cleanLine, data.type === 'error' ? 'error' : 'info');
@@ -461,6 +473,49 @@ document.addEventListener('DOMContentLoaded', () => {
             
             item.appendChild(num);
             item.appendChild(text);
+            item.appendChild(icon);
+            listDiv.appendChild(item);
+        });
+    }
+
+    function buildFlowQueueUI(pairs) {
+        currentPromptList = pairs;
+        completedCount = 0;
+        const listDiv = document.getElementById('prompt-queue-list');
+        const statusSpan = document.getElementById('queue-status');
+
+        statusSpan.innerText = `0/${pairs.length}`;
+        listDiv.innerHTML = '';
+
+        pairs.forEach((pair, idx) => {
+            const item = document.createElement('div');
+            item.className = 'prompt-item pending';
+            item.id = `queue-item-${pair.index}`;
+
+            const num = document.createElement('div');
+            num.className = 'prompt-item-index';
+            num.innerText = `#${pair.index}`;
+
+            const textWrapper = document.createElement('div');
+            textWrapper.className = 'prompt-item-text';
+
+            const imgLine = document.createElement('div');
+            imgLine.style.cssText = 'font-size: 0.8rem; margin-bottom: 0.3rem; opacity: 0.8;';
+            imgLine.innerHTML = `🎨 ${pair.imagePrompt.substring(0, 60)}...`;
+
+            const vidLine = document.createElement('div');
+            vidLine.style.cssText = 'font-size: 0.8rem; opacity: 0.6;';
+            vidLine.innerHTML = `🎬 ${pair.videoPrompt.substring(0, 60)}...`;
+
+            textWrapper.appendChild(imgLine);
+            textWrapper.appendChild(vidLine);
+
+            const icon = document.createElement('i');
+            icon.className = 'ph ph-hourglass-high prompt-item-icon';
+            icon.id = `queue-icon-${pair.index}`;
+
+            item.appendChild(num);
+            item.appendChild(textWrapper);
             item.appendChild(icon);
             listDiv.appendChild(item);
         });

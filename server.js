@@ -111,7 +111,10 @@ app.post('/api/generate', upload.single('promptFile'), (req, res) => {
 
     const providerFlag = req.body.provider || 'imagefx';
     const mediaTypeFlag = req.body.mediaType || 'image';
-    currentProcess = spawn('node', ['index.js', '-p', promptFilePath, '-f', folder, '--provider', providerFlag, '--media-type', mediaTypeFlag], { cwd: __dirname });
+    const useFlow = req.body.flowMode === 'true' || req.body.flowMode === true;
+    const args = ['index.js', '-p', promptFilePath, '-f', folder, '--provider', providerFlag, '--media-type', mediaTypeFlag];
+    if (useFlow) args.push('--flow');
+    currentProcess = spawn('node', args, { cwd: __dirname });
 
     const sendLog = (type, message) => {
         res.write(`data: ${JSON.stringify({ type, message })}\n\n`);
