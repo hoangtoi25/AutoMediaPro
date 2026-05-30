@@ -538,8 +538,9 @@ export async function closeSettingsAndFocusInput(page) {
  * @param {import('puppeteer-core').Page} page
  * @param {import('puppeteer-core').ElementHandle} inputEl
  * @param {string} prompt
+ * @param {string} inputMethod
  */
-export async function typePrompt(page, inputEl, prompt) {
+export async function typePrompt(page, inputEl, prompt, inputMethod = 'typing') {
   // Ensure settings panel is closed first to avoid covering the input field!
   await closeSettingsPanel(page);
 
@@ -555,9 +556,15 @@ export async function typePrompt(page, inputEl, prompt) {
   await page.keyboard.press('Backspace');
   await delay(TIMING.SELECT_ALL_SETTLE);
 
-  // Type with human-like delay
-  await page.keyboard.type(prompt, { delay: TIMING.HUMAN_TYPE_DELAY });
-  await delay(TIMING.TYPE_SETTLE);
+  if (inputMethod === 'paste') {
+    // Fast typing (simulates paste, safe for React/Angular frameworks)
+    await page.keyboard.type(prompt, { delay: 0 });
+    await delay(TIMING.TYPE_SETTLE);
+  } else {
+    // Type with human-like delay
+    await page.keyboard.type(prompt, { delay: TIMING.HUMAN_TYPE_DELAY });
+    await delay(TIMING.TYPE_SETTLE);
+  }
 }
 
 /**

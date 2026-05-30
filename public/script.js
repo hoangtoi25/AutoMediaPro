@@ -146,6 +146,18 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+    // --- Input Method Toggle Logic ---
+    let selectedInputMethod = 'typing'; // 'typing' or 'paste'
+    const inputMethodBtns = document.querySelectorAll('.input-method-btn');
+    
+    inputMethodBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            inputMethodBtns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            selectedInputMethod = btn.dataset.method;
+        });
+    });
+
     // --- File Drag & Drop Logic ---
     const dropZone = document.getElementById('file-drop-zone');
     const fileInput = document.getElementById('promptFile');
@@ -343,6 +355,7 @@ document.addEventListener('DOMContentLoaded', () => {
         formData.append('provider', selectedProvider);
         formData.append('mediaType', selectedMediaType);
         formData.append('aspectRatio', selectedAspectRatio);
+        formData.append('inputMethod', selectedInputMethod);
         if (selectedMediaType === 'flow') {
             formData.append('flowMode', 'true');
         }

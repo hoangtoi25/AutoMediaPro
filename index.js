@@ -38,6 +38,7 @@ function parseArgs() {
     mediaType: 'image',
     flowMode: false,
     aspectRatio: null,
+    inputMethod: 'typing',
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -69,6 +70,10 @@ function parseArgs() {
       case '--aspect-ratio':
       case '-a':
         opts.aspectRatio = args[++i];
+        break;
+      case '--input-method':
+      case '-i':
+        opts.inputMethod = args[++i];
         break;
       case '--login':
         opts.loginMode = true;
@@ -489,6 +494,7 @@ Bước đầu tiên (chỉ cần 1 lần cho mỗi provider):
         maxRetries: opts.maxRetries,
         signal: ac.signal,
         aspectRatio: opts.aspectRatio,
+        inputMethod: opts.inputMethod,
       });
     } else {
       // ── Normal Pipeline: single media type ────────────
@@ -500,6 +506,7 @@ Bước đầu tiên (chỉ cần 1 lần cho mỗi provider):
         mediaType: opts.mediaType,
         signal: ac.signal,
         aspectRatio: opts.aspectRatio,
+        inputMethod: opts.inputMethod,
       });
     }
 

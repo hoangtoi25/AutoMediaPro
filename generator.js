@@ -33,7 +33,7 @@ const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
  * @returns {Promise<{results: Array<{prompt: string, status: string, error?: string}>}>}
  */
 export async function runGeneration(page, config) {
-  const { prompts, downloadFolder, providerName = 'imagefx', maxRetries = 2, mediaType = 'image', signal, aspectRatio } = config;
+  const { prompts, downloadFolder, providerName = 'imagefx', maxRetries = 2, mediaType = 'image', signal, aspectRatio, inputMethod = 'typing' } = config;
   const provider = getProvider(providerName);
   const results = [];
   const downloadedSrcs = new Set();
@@ -126,7 +126,7 @@ export async function runGeneration(page, config) {
     try {
       // Phase 1: Snapshot & Submit prompt
       const imgSnapshot = new Set(await provider.snapshotImages(page));
-      await provider.submitPrompt(page, prompt, mediaType);
+      await provider.submitPrompt(page, prompt, mediaType, inputMethod);
 
       // Phase 2: Wait for result
       const result = await provider.waitForImages(page, index, imgSnapshot, signal, mediaType);

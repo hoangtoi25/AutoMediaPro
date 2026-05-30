@@ -168,7 +168,7 @@ async function preparePage(page, mediaType = 'image', options = {}) {
 
 // ── Submit Prompt ─────────────────────────────────────────────
 
-async function submitPrompt(page, prompt, mediaType = 'image') {
+async function submitPrompt(page, prompt, mediaType = 'image', inputMethod = 'typing') {
   for (let attempt = 0; attempt < MAX_INPUT_RETRIES; attempt++) {
     const inputEl = await findInputElement(page);
     if (!inputEl) throw new Error('Không tìm thấy ô nhập liệu');
@@ -178,8 +178,8 @@ async function submitPrompt(page, prompt, mediaType = 'image') {
     await delay(200);
 
     // Type prompt
-    log.step('Đang nhập prompt...');
-    await typePrompt(page, inputEl, prompt);
+    log.step(`Đang nhập prompt (method: ${inputMethod})...`);
+    await typePrompt(page, inputEl, prompt, inputMethod);
 
     // Verify input
     const text = await getInputText(page);

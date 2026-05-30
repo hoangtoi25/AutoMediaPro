@@ -354,7 +354,7 @@ async function preparePage(page, mediaType = 'image', options = {}) {
  * Meta AI generates videos via text command prefix "Create Video: ..."
  * in the Create mode, NOT via an "Animate" button.
  */
-async function submitPrompt(page, prompt, mediaType = 'image') {
+async function submitPrompt(page, prompt, mediaType = 'image', inputMethod = 'typing') {
   // Dismiss any lingering "Discard prompt?" dialog from previous prompt
   await dismissDiscardDialog(page);
 
@@ -385,8 +385,8 @@ async function submitPrompt(page, prompt, mediaType = 'image') {
     await delay(200);
 
     // Type prompt (with prefix for video, raw for image)
-    log.step('[Meta AI] Đang nhập prompt...');
-    await typePrompt(page, inputEl, promptToType);
+    log.step(`[Meta AI] Đang nhập prompt (method: ${inputMethod})...`);
+    await typePrompt(page, inputEl, promptToType, inputMethod);
 
     // Verify input
     const text = await getInputText(page);

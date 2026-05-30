@@ -50,6 +50,7 @@ export async function runFlowPipeline(page, config) {
     maxRetries = 2,
     signal,
     aspectRatio = null,
+    inputMethod = 'typing',
   } = config;
 
   const imageAspectRatio = aspectRatio || FLOW_DEFAULTS.IMAGE_ASPECT_RATIO;
@@ -150,7 +151,7 @@ export async function runFlowPipeline(page, config) {
         // 1f. Snapshot → Submit → Wait
         log.prompt(pair.index, `🎨 ${cleanImagePrompt.substring(0, 80)}...`);
         const imgSnapshot = new Set(await provider.snapshotImages(page));
-        await provider.submitPrompt(page, cleanImagePrompt, 'image');
+        await provider.submitPrompt(page, cleanImagePrompt, 'image', inputMethod);
 
         const imageResult = await provider.waitForImages(page, pair.index, imgSnapshot, signal, 'image');
 
@@ -265,7 +266,7 @@ export async function runFlowPipeline(page, config) {
         // 2e. Submit video motion prompt
         log.prompt(pair.index, `🎬 ${pair.videoPrompt.substring(0, 80)}...`);
         const vidSnapshot = new Set(await provider.snapshotImages(page));
-        await provider.submitPrompt(page, pair.videoPrompt, 'video');
+        await provider.submitPrompt(page, pair.videoPrompt, 'video', inputMethod);
 
         // 2f. Wait for video (longer timeout)
         const videoResult = await provider.waitForImages(page, pair.index, vidSnapshot, signal, 'video');
