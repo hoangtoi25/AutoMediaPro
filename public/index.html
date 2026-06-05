@@ -65,7 +65,12 @@
                     <form id="config-form">
                         <div class="form-group">
                             <label for="folderName">Output Folder Name <span class="required">*</span></label>
-                            <input type="text" id="folderName" placeholder="e.g. Documentary_Assets" class="input-field" required>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <input type="text" id="folderName" placeholder="e.g. Documentary_Assets" class="input-field" style="flex: 1;" required>
+                                <button type="button" id="btn-pick-folder" class="btn btn-outline" style="margin: 0; padding: 0 1rem; white-space: nowrap; height: 100%;">
+                                    <i class="ph ph-folder-open"></i> Browse...
+                                </button>
+                            </div>
                             <small>Images will be downloaded to this folder.</small>
                         </div>
 
@@ -81,6 +86,9 @@
                                 <span>or</span>
                                 <div style="display: flex; gap: 1rem; justify-content: center; margin-top: 1rem;">
                                     <label for="promptFile" class="btn btn-outline" style="margin:0;">Browse Files</label>
+                                    <button type="button" id="btn-pick-file" class="btn btn-outline" style="margin:0;">
+                                        <i class="ph ph-file"></i> Select Local File
+                                    </button>
                                 </div>
                                 <input type="file" id="promptFile" accept=".txt,.md" hidden>
                                 <div id="selected-file-name" class="selected-file">No file selected</div>

@@ -21,7 +21,7 @@
  */
 
 import { writeFile, mkdir } from 'fs/promises';
-import { join } from 'path';
+import { join, isAbsolute } from 'path';
 import { DOWNLOAD } from './config.js';
 import { log } from './logger.js';
 
@@ -31,12 +31,12 @@ import { log } from './logger.js';
  * @param {import('puppeteer-core').Page} page
  * @param {string} url - Media URL (can be blob:, https://, etc.)
  * @param {string} filename - Filename (e.g., "1.jpg" or "1.mp4")
- * @param {string} folder - Subfolder name
+ * @param {string} folder - Subfolder name (can be absolute path)
  * @returns {Promise<{ok: boolean, path?: string, error?: string}>}
  */
 export async function downloadImage(page, url, filename, folder) {
   try {
-    const folderPath = join(DOWNLOAD.BASE_DIR, folder);
+    const folderPath = isAbsolute(folder) ? folder : join(DOWNLOAD.BASE_DIR, folder);
     await mkdir(folderPath, { recursive: true });
     const filePath = join(folderPath, filename);
 

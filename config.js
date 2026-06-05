@@ -23,7 +23,10 @@ const __dirname = dirname(__filename);
 // ── Auto-detect Chrome executable ─────────────────────────────
 function findChromeExe() {
   // 1. Portable Chrome bundled with the project
-  const portable = join(__dirname, 'GoogleChromePortable64', 'App', 'Chrome-bin', 'chrome.exe');
+  let portable = join(__dirname, 'GoogleChromePortable64', 'App', 'Chrome-bin', 'chrome.exe');
+  if (portable.includes('app.asar')) {
+    portable = portable.replace('app.asar', 'app.asar.unpacked');
+  }
   if (existsSync(portable)) return portable;
 
   // 2. System Chrome (common install paths)
@@ -50,11 +53,17 @@ function findChromeExe() {
 }
 
 function findUserDataDir() {
-  const portableProfile = join(__dirname, 'GoogleChromePortable64', 'Data', 'profile');
+  let portableProfile = join(__dirname, 'GoogleChromePortable64', 'Data', 'profile');
+  if (portableProfile.includes('app.asar')) {
+    portableProfile = portableProfile.replace('app.asar', 'app.asar.unpacked');
+  }
   if (existsSync(portableProfile)) return portableProfile;
 
   // Use a dedicated profile directory next to the app
-  const appProfile = join(__dirname, 'browser-profiles', 'automedia');
+  let appProfile = join(__dirname, 'browser-profiles', 'automedia');
+  if (appProfile.includes('app.asar')) {
+    appProfile = appProfile.replace('app.asar', 'app.asar.unpacked');
+  }
   return appProfile;
 }
 

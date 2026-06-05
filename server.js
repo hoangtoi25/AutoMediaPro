@@ -14,29 +14,59 @@ const port = 3000;
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-const upload = multer({ dest: 'prompts/' });
+// Determine a writeable prompts directory (handle app.asar path)
+let promptsDir = path.join(__dirname, 'prompts');
+if (promptsDir.includes('app.asar')) {
+    promptsDir = promptsDir.replace('app.asar', 'app.asar.unpacked');
+}
 
 // Ensure prompts directory exists
-if (!fs.existsSync(path.join(__dirname, 'prompts'))) {
-    fs.mkdirSync(path.join(__dirname, 'prompts'));
+if (!fs.existsSync(promptsDir)) {
+    fs.mkdirSync(promptsDir, { recursive: true });
 }
+
+const upload = multer({ dest: promptsDir });
 
 // Global state to track running process
 let currentProcess = null;
 
 // Native File/Folder pickers for Windows
 app.get('/api/pick-folder', (req, res) => {
-    const child = spawn('powershell', ['-Sta', '-NoProfile', '-File', path.join(__dirname, 'pick-folder.ps1')]);
+    let scriptPath = path.join(__dirname, 'pick-folder.ps1');
+    if (scriptPath.includes('app.asar')) {
+        scriptPath = scriptPath.replace('app.asar', 'app.asar.unpacked');
+    }
+    const child = spawn('powershell', ['-Sta', '-NoProfile', '-File', scriptPath]);
     let folderPath = '';
     child.stdout.on('data', data => folderPath += data.toString());
     child.on('close', () => res.json({ path: folderPath.trim() }));
 });
 
 app.get('/api/pick-file', (req, res) => {
-    const child = spawn('powershell', ['-Sta', '-NoProfile', '-File', path.join(__dirname, 'pick-file.ps1')]);
+    let scriptPath = path.join(__dirname, 'pick-file.ps1');
+    if (scriptPath.includes('app.asar')) {
+        scriptPath = scriptPath.replace('app.asar', 'app.asar.unpacked');
+    }
+    const child = spawn('powershell', ['-Sta', '-NoProfile', '-File', scriptPath]);
     let filePath = '';
     child.stdout.on('data', data => filePath += data.toString());
     child.on('close', () => res.json({ path: filePath.trim() }));
+});
+
+app.get('/api/read-file', (req, res) => {
+    const filePath = req.query.path;
+    if (!filePath) {
+        return res.status(400).json({ error: 'Path is required' });
+    }
+    try {
+        if (!fs.existsSync(filePath)) {
+            return res.status(404).json({ error: 'File not found' });
+        }
+        const content = fs.readFileSync(filePath, 'utf-8');
+        res.json({ content });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 app.get('/api/check-chrome', (req, res) => {
@@ -59,7 +89,10 @@ app.post('/api/login', (req, res) => {
         'Connection': 'keep-alive'
     });
 
-    currentProcess = spawn('node', ['index.js', '--login', '--provider', provider], { cwd: __dirname });
+    currentProcess = spawn(process.execPath, ['index.js', '--login', '--provider', provider], {
+        cwd: __dirname,
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }
+    });
 
     const sendLog = (type, message) => {
         res.write(`data: ${JSON.stringify({ type, message })}\n\n`);
@@ -95,7 +128,7 @@ app.post('/api/generate', upload.single('promptFile'), (req, res) => {
     } else if (req.file) {
         promptFilePath = req.file.path;
     } else if (promptText) {
-        promptFilePath = path.join(__dirname, 'prompts', `web_prompt_${Date.now()}.txt`);
+        promptFilePath = path.join(promptsDir, `web_prompt_${Date.now()}.txt`);
         fs.writeFileSync(promptFilePath, promptText);
     } else {
         return res.status(400).json({ error: 'No prompt file or text provided.' });
@@ -118,7 +151,10 @@ app.post('/api/generate', upload.single('promptFile'), (req, res) => {
     if (useFlow) args.push('--flow');
     if (aspectRatio) args.push('--aspect-ratio', aspectRatio);
     if (inputMethod) args.push('--input-method', inputMethod);
-    currentProcess = spawn('node', args, { cwd: __dirname });
+    currentProcess = spawn(process.execPath, args, {
+        cwd: __dirname,
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }
+    });
 
     const sendLog = (type, message) => {
         res.write(`data: ${JSON.stringify({ type, message })}\n\n`);

@@ -26,6 +26,11 @@
     "portable": {
       "artifactName": "${productName}.exe"
     },
+    "asar": true,
+    "asarUnpack": [
+      "*.ps1",
+      "GoogleChromePortable64/**/*"
+    ],
     "files": [
       "**/*",
       "!dist/**/*",

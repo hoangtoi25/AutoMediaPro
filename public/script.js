@@ -60,7 +60,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const activeTab = document.querySelector('.tab-btn.active');
                 const inputType = activeTab ? activeTab.dataset.tab : 'upload';
                 if (inputType === 'upload') {
-                    if (!selectedFile) {
+                    if (!selectedFile && !nativeFilePath) {
                         alert('⚠️ Vui lòng chọn file prompts trước khi chuyển sang bước tiếp theo!');
                         return;
                     }
@@ -163,6 +163,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const fileInput = document.getElementById('promptFile');
     const fileNameDisplay = document.getElementById('selected-file-name');
     let selectedFile = null;
+    let nativeFilePath = null;
+    let nativeFolderPath = null;
 
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
         dropZone.addEventListener(eventName, preventDefaults, false);
@@ -206,6 +208,55 @@ document.addEventListener('DOMContentLoaded', () => {
             fileNameDisplay.textContent = selectedFile.name;
             fileNameDisplay.style.color = '#10b981'; // Success color
         }
+    }
+
+    // --- Native Folder Picker ---
+    const btnPickFolder = document.getElementById('btn-pick-folder');
+    if (btnPickFolder) {
+        btnPickFolder.addEventListener('click', async () => {
+            try {
+                const res = await fetch('/api/pick-folder');
+                const data = await res.json();
+                if (data.path) {
+                    document.getElementById('folderName').value = data.path;
+                    nativeFolderPath = data.path;
+                }
+            } catch (err) {
+                console.error('Pick folder error:', err);
+            }
+        });
+    }
+
+    const folderInput = document.getElementById('folderName');
+    if (folderInput) {
+        folderInput.addEventListener('input', () => {
+            nativeFolderPath = null;
+        });
+    }
+
+    // --- Native File Picker ---
+    const btnPickFile = document.getElementById('btn-pick-file');
+    if (btnPickFile) {
+        btnPickFile.addEventListener('click', async () => {
+            try {
+                const res = await fetch('/api/pick-file');
+                const data = await res.json();
+                if (data.path) {
+                    nativeFilePath = data.path;
+                    selectedFile = null; // Clear web-uploaded file
+                    fileInput.value = ''; // Reset file input
+                    
+                    // Display file name (get base name from path)
+                    const filename = data.path.split(/[\\/]/).pop();
+                    fileNameDisplay.textContent = filename + ' (Local)';
+                    fileNameDisplay.style.color = '#10b981'; // Success color
+                    
+                    previewPromptsInQueue();
+                }
+            } catch (err) {
+                console.error('Pick file error:', err);
+            }
+        });
     }
 
     // --- Status Indicator Logic ---
@@ -326,11 +377,15 @@ document.addEventListener('DOMContentLoaded', () => {
         formData.append('folderName', folderName);
 
         if (activeInputType === 'upload') {
-            if (!selectedFile) {
+            if (!selectedFile && !nativeFilePath) {
                 alert('⚠️ Vui lòng chọn file prompts');
                 return;
             }
-            formData.append('promptFile', selectedFile);
+            if (selectedFile) {
+                formData.append('promptFile', selectedFile);
+            } else if (nativeFilePath) {
+                formData.append('nativeFilePath', nativeFilePath);
+            }
         } else {
             const text = document.getElementById('promptText').value;
             if (!text.trim()) {
@@ -593,18 +648,31 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function previewPromptsInQueue() {
+    async function previewPromptsInQueue() {
         const activeTab = document.querySelector('.tab-btn.active');
         const inputType = activeTab ? activeTab.dataset.tab : 'upload';
 
-        if (inputType === 'upload' && selectedFile) {
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                const text = e.target.result;
-                const prompts = parsePromptsFromText(text, selectedFile.name);
-                buildPromptQueueUI(prompts);
-            };
-            reader.readAsText(selectedFile);
+        if (inputType === 'upload') {
+            if (selectedFile) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const text = e.target.result;
+                    const prompts = parsePromptsFromText(text, selectedFile.name);
+                    buildPromptQueueUI(prompts);
+                };
+                reader.readAsText(selectedFile);
+            } else if (nativeFilePath) {
+                try {
+                    const res = await fetch(`/api/read-file?path=${encodeURIComponent(nativeFilePath)}`);
+                    const data = await res.json();
+                    if (data.content) {
+                        const prompts = parsePromptsFromText(data.content, nativeFilePath);
+                        buildPromptQueueUI(prompts);
+                    }
+                } catch (err) {
+                    console.error('Error reading native file:', err);
+                }
+            }
         } else if (inputType === 'paste') {
             const text = document.getElementById('promptText').value;
             const prompts = parsePromptsFromText(text, 'input.txt');
