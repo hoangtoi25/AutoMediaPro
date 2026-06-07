@@ -4,12 +4,21 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import multer from 'multer';
+import { CHROME, reloadConfig } from './config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 const port = 3000;
+
+// Disable caching for local development
+app.use((req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    next();
+});
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
@@ -53,6 +62,17 @@ app.get('/api/pick-file', (req, res) => {
     child.on('close', () => res.json({ path: filePath.trim() }));
 });
 
+app.get('/api/pick-browser', (req, res) => {
+    let scriptPath = path.join(__dirname, 'pick-browser.ps1');
+    if (scriptPath.includes('app.asar')) {
+        scriptPath = scriptPath.replace('app.asar', 'app.asar.unpacked');
+    }
+    const child = spawn('powershell', ['-Sta', '-NoProfile', '-File', scriptPath]);
+    let filePath = '';
+    child.stdout.on('data', data => filePath += data.toString());
+    child.on('close', () => res.json({ path: filePath.trim() }));
+});
+
 app.get('/api/read-file', (req, res) => {
     const filePath = req.query.path;
     if (!filePath) {
@@ -69,11 +89,40 @@ app.get('/api/read-file', (req, res) => {
     }
 });
 
+app.get('/api/settings', (req, res) => {
+    try {
+        const settingsPath = path.join(__dirname, 'settings.json');
+        let settings = { browserPath: '' };
+        if (fs.existsSync(settingsPath)) {
+            settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+        }
+        res.json({ ...settings, computedPath: CHROME.EXECUTABLE });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/settings', (req, res) => {
+    try {
+        const settingsPath = path.join(__dirname, 'settings.json');
+        let settings = { browserPath: '' };
+        if (fs.existsSync(settingsPath)) {
+            try { settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch(e){}
+        }
+        if (req.body.browserPath !== undefined) {
+            settings.browserPath = req.body.browserPath;
+            fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
+            reloadConfig();
+        }
+        res.json({ success: true, computedPath: CHROME.EXECUTABLE });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.get('/api/check-chrome', (req, res) => {
-    // Check for portable Chrome bundled with the project
-    const portableChrome = path.join(__dirname, 'GoogleChromePortable64', 'App', 'Chrome-bin', 'chrome.exe');
-    const installed = fs.existsSync(portableChrome);
-    res.json({ installed });
+    const installed = fs.existsSync(CHROME.EXECUTABLE);
+    res.json({ installed, path: CHROME.EXECUTABLE });
 });
 
 app.post('/api/login', (req, res) => {

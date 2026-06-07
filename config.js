@@ -14,7 +14,7 @@
 import { homedir } from 'os';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 
 // ── Resolve project root (directory of this file) ─────────────
 const __filename = fileURLToPath(import.meta.url);
@@ -22,6 +22,19 @@ const __dirname = dirname(__filename);
 
 // ── Auto-detect Chrome executable ─────────────────────────────
 function findChromeExe() {
+  // 0. Check custom settings.json
+  const settingsPath = join(__dirname, 'settings.json');
+  if (existsSync(settingsPath)) {
+    try {
+      const settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
+      if (settings.browserPath && existsSync(settings.browserPath)) {
+        return settings.browserPath;
+      }
+    } catch (e) {
+      console.error('Lỗi khi đọc settings.json:', e);
+    }
+  }
+
   // 1. Portable Chrome bundled with the project
   let portable = join(__dirname, 'GoogleChromePortable64', 'App', 'Chrome-bin', 'chrome.exe');
   if (portable.includes('app.asar')) {
@@ -77,6 +90,10 @@ export const CHROME = {
   // WebSocket endpoint (auto-discovered if not set)
   WS_ENDPOINT: null,
 };
+
+export function reloadConfig() {
+  CHROME.EXECUTABLE = findChromeExe();
+}
 
 // ── Timing (milliseconds) — shared defaults ───────────────────
 // Providers may override these with their own timing values.

@@ -10,6 +10,7 @@
 
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
+import { execFile } from 'child_process';
 import { CHROME } from './config.js';
 import { log } from './logger.js';
 
@@ -55,24 +56,58 @@ async function launchNew() {
   log.info('Đang mở Chrome mới...');
   log.info(`Profile: ${CHROME.USER_DATA_DIR}`);
 
-  const browser = await puppeteer.launch({
-    headless: false,
-    executablePath: CHROME.EXECUTABLE,
-    userDataDir: CHROME.USER_DATA_DIR,
-    defaultViewport: null,
-    args: [
-      `--remote-debugging-port=${CHROME.DEBUG_PORT}`,
-      '--disable-blink-features=AutomationControlled',
-      '--exclude-switches=enable-automation',
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--disable-infobars',
-      '--start-maximized',
-    ],
-    ignoreDefaultArgs: ['--enable-automation'],
+  const args = [
+    `--user-data-dir=${CHROME.USER_DATA_DIR}`,
+    `--remote-debugging-port=${CHROME.DEBUG_PORT}`,
+    '--disable-blink-features=AutomationControlled',
+    '--exclude-switches=enable-automation',
+    '--no-first-run',
+    '--no-default-browser-check',
+    '--disable-infobars',
+    '--start-maximized',
+  ];
+
+  // Clean environment variables to prevent Chrome from inheriting ELECTRON_RUN_AS_NODE
+  const cleanEnv = { ...process.env };
+  delete cleanEnv.ELECTRON_RUN_AS_NODE;
+
+  // Launch Chrome using native execFile (most robust on Windows with Portable Chrome)
+  const child = execFile(CHROME.EXECUTABLE, args, {
+    env: cleanEnv,
   });
 
-  log.success('Chrome đã mở.');
+  child.unref();
+
+  // Poll debugging endpoint to get WebSocket URL
+  log.info('Đang chờ Chrome khởi động...');
+  const maxAttempts = 30; // Wait up to 15 seconds
+  let attempts = 0;
+  let wsUrl = null;
+
+  while (attempts < maxAttempts) {
+    await new Promise(r => setTimeout(r, 500));
+    try {
+      const endpoint = `http://127.0.0.1:${CHROME.DEBUG_PORT}`;
+      const res = await fetch(`${endpoint}/json/version`);
+      const data = await res.json();
+      wsUrl = data.webSocketDebuggerUrl;
+      if (wsUrl) break;
+    } catch (e) {
+      // Ignore connection errors during startup
+    }
+    attempts++;
+  }
+
+  if (!wsUrl) {
+    throw new Error(`Không thể khởi động hoặc kết nối tới Chrome tại cổng ${CHROME.DEBUG_PORT}.`);
+  }
+
+  const browser = await puppeteer.connect({
+    browserWSEndpoint: wsUrl,
+    defaultViewport: null,
+  });
+
+  log.success('Chrome đã mở và kết nối thành công.');
   return browser;
 }
 

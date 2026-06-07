@@ -1,5 +1,16 @@
 document.addEventListener('DOMContentLoaded', () => {
     // --- Initial Checks ---
+    fetch('/api/settings')
+        .then(res => res.json())
+        .then(data => {
+            if (data.browserPath) {
+                const el = document.getElementById('browserPath');
+                if (el) el.value = data.browserPath;
+            }
+            verifyBrowserPath();
+        })
+        .catch(console.error);
+
     fetch('/api/check-chrome')
         .then(res => res.json())
         .then(data => {
@@ -257,6 +268,69 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.error('Pick file error:', err);
             }
         });
+    }
+
+    // --- Native Browser Picker ---
+    const btnPickBrowser = document.getElementById('btn-pick-browser');
+    const browserPathInput = document.getElementById('browserPath');
+
+    if (btnPickBrowser) {
+        btnPickBrowser.addEventListener('click', async () => {
+            try {
+                const res = await fetch('/api/pick-browser');
+                const data = await res.json();
+                if (data.path) {
+                    browserPathInput.value = data.path;
+                    await saveBrowserPath(data.path);
+                    verifyBrowserPath();
+                }
+            } catch (err) {
+                console.error('Pick browser error:', err);
+            }
+        });
+    }
+
+    if (browserPathInput) {
+        browserPathInput.addEventListener('change', async () => {
+            await saveBrowserPath(browserPathInput.value);
+            verifyBrowserPath();
+        });
+    }
+
+    async function saveBrowserPath(path) {
+        try {
+            await fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ browserPath: path })
+            });
+        } catch (err) {
+            console.error('Save settings error:', err);
+        }
+    }
+
+    async function verifyBrowserPath() {
+        const statusEl = document.getElementById('browser-status');
+        if (!statusEl) return;
+        
+        statusEl.className = 'login-badge checking';
+        statusEl.innerHTML = '<i class="ph ph-spinner-gap"></i> Đang kiểm tra...';
+        
+        try {
+            const res = await fetch('/api/check-chrome');
+            const data = await res.json();
+            if (data.installed) {
+                statusEl.className = 'login-badge logged-in';
+                statusEl.innerHTML = '<i class="ph-fill ph-check-circle"></i> Trình duyệt hợp lệ';
+            } else {
+                statusEl.className = 'login-badge not-logged-in';
+                statusEl.innerHTML = '<i class="ph ph-warning"></i> File không tồn tại';
+            }
+        } catch (err) {
+            console.error('Verify browser error:', err);
+            statusEl.className = 'login-badge unknown';
+            statusEl.innerHTML = '<i class="ph ph-question"></i> Lỗi kiểm tra';
+        }
     }
 
     // --- Status Indicator Logic ---
